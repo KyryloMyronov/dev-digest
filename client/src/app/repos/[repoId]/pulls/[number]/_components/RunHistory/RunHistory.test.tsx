@@ -25,6 +25,7 @@ function run(o: Partial<RunSummary>): RunSummary {
     duration_ms: 1000,
     tokens_in: 100,
     tokens_out: 50,
+    cost_usd: null,
     findings_count: 0,
     grounding: "0/0 passed",
     ran_at: "2026-06-11T18:44:34.000Z",
@@ -71,5 +72,39 @@ describe("RunHistory — outcome badge", () => {
   it("a running run reads 'running'", () => {
     renderRuns([run({ status: "running", score: null, blockers: null })]);
     expect(screen.getByText("running")).toBeInTheDocument();
+  });
+});
+
+describe("RunHistory — cost", () => {
+  it("shows the settled run's cost", () => {
+    renderRuns([run({ status: "done", cost_usd: 0.42, blockers: 0, score: 88 })]);
+    expect(screen.getByText("$0.42")).toBeInTheDocument();
+  });
+
+  it("keeps sub-cent runs readable instead of rounding them to $0.00", () => {
+    renderRuns([run({ status: "done", cost_usd: 0.0042, blockers: 0, score: 88 })]);
+    expect(screen.getByText("$0.0042")).toBeInTheDocument();
+  });
+
+  it("reads n/a — not $0.00 — when the model isn't priced", () => {
+    renderRuns([run({ status: "done", cost_usd: null, blockers: 0, score: 88 })]);
+    expect(screen.getByText("n/a")).toBeInTheDocument();
+    expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
+  });
+
+  it("keeps a genuinely free model as $0.00", () => {
+    renderRuns([run({ status: "done", cost_usd: 0, blockers: 0, score: 88 })]);
+    expect(screen.getByText("$0.00")).toBeInTheDocument();
+    expect(screen.queryByText("n/a")).not.toBeInTheDocument();
+  });
+
+  it("shows nothing for unsettled runs — a running run has no cost yet", () => {
+    renderRuns([run({ status: "running", cost_usd: null, score: null, blockers: null })]);
+    expect(screen.queryByText("n/a")).not.toBeInTheDocument();
+  });
+
+  it("shows nothing for a failed run", () => {
+    renderRuns([run({ status: "failed", error: "boom", cost_usd: null, score: null })]);
+    expect(screen.queryByText("n/a")).not.toBeInTheDocument();
   });
 });

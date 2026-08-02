@@ -91,6 +91,7 @@
       "author": "Author",
       "size": "Size",
       "score": "Score",
+      "cost": "Cost",
       "status": "Status",
       "updated": "Updated"
     },
@@ -104,6 +105,7 @@
   "timeline": {
     "goToReview": "Jump to this run’s findings below",
     "openTrace": "Open run trace & logs",
-    "deleteRun": "Delete run"
+    "deleteRun": "Delete run",
+    "costUnknown": "n/a"
   }
 }
