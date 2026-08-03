@@ -14,6 +14,34 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-03 — running the flows with no global `agent-browser`, and under Colima
+
+**Rubric:** What Works
+**Symptom:** two separate blocks on a machine that has never run the suite.
+`./scripts/e2e.sh` warns `agent-browser not found` and every flow then fails at
+step 1; and before that, its Postgres step cannot reach Docker at all under
+Colima.
+**Cause:** `run.ts` resolves the CLI as the bare name `agent-browser`
+(`AGENT_BROWSER_BIN`, default on `$PATH`), and `npx agent-browser` does **not**
+put it on `$PATH` — so the documented `npx agent-browser install` downloads
+Chrome and still leaves the runner unable to find the binary. Separately,
+`e2e.sh` shells out to `docker`, which needs the same Colima socket that
+testcontainers does (see `server/insights.md`).
+**Fix:** no global install is required. Install once with
+`npx --yes agent-browser@<version> install`, then point the runner at the
+npx-cached copy — either `AGENT_BROWSER_BIN=<path>` or a two-line `sh` shim on
+`$PATH` wrapping `node .../agent-browser/bin/agent-browser.js`. Prefix the
+hermetic script with the Colima socket:
+
+```sh
+DOCKER_HOST=unix://$HOME/.colima/default/docker.sock ./scripts/e2e.sh
+```
+
+Useful while iterating: a flow step is passed verbatim to the CLI, so
+`{ "cmd": ["screenshot", "/tmp/x.png"] }` drops a real screenshot mid-flow —
+handy for eyeballing a design against a mock. Strip such steps before
+committing; the runner already screenshots on failure.
+
 ## 2026-07-30 — every flow fails identically at step 1
 
 **Rubric:** Recurring Errors & Fixes

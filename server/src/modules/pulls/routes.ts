@@ -1,7 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { and, desc, eq, inArray } from 'drizzle-orm';
-import type { PrMeta, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
+import { and, count, desc, eq, inArray } from 'drizzle-orm';
+import type {
+  PrMeta,
+  PrDetail,
+  PrFindingCounts,
+  GitHubClient,
+  PrReviewComment,
+} from '@devdigest/shared';
 import { PrCommentInput } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
 import { getContext } from '../_shared/context.js';
@@ -111,13 +117,13 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
-    // Latest-review SCORE per PR for the list's score ring. Computed on read
-    // from reviews (no FK denorm); the list is small, so one IN-query + JS
-    // grouping is cheap. (The per-severity FINDINGS breakdown is intentionally
-    // not surfaced on the list — findings live on the PR detail page.)
+    // Latest-review SCORE and per-severity FINDINGS per PR, for the list's score
+    // ring and findings counters. Computed on read from reviews (no FK denorm);
+    // the list is small, so an IN-query + JS grouping per fact is cheap.
     const prIds = rows.map((r) => r.id);
     const latestReviewByPr = new Map<string, { score: number | null }>();
     const latestRunCostByPr = new Map<string, number | null>();
+    const findingsByPr = new Map<string, PrFindingCounts>();
     if (prIds.length > 0) {
       const reviewRows = await container.db
         .select({ prId: t.reviews.prId, score: t.reviews.score })
@@ -142,6 +148,38 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       for (const run of runRows) {
         if (run.prId && !latestRunCostByPr.has(run.prId)) {
           latestRunCostByPr.set(run.prId, run.costUsd);
+        }
+      }
+
+      // A PR with any review at all gets a counts object — all-zero when that
+      // review found nothing. Never-reviewed PRs stay absent from the map (→
+      // null on the wire), which is a different fact from "reviewed and clean".
+      // Deliberately NOT derived from `latestReviewByPr`: that one filters
+      // kind='review', so a findings-bearing 'summary' review would otherwise
+      // report its PR as never reviewed.
+      const reviewedPrIds = await container.db
+        .selectDistinct({ prId: t.reviews.prId })
+        .from(t.reviews)
+        .where(inArray(t.reviews.prId, prIds));
+      for (const { prId } of reviewedPrIds) {
+        findingsByPr.set(prId, { CRITICAL: 0, WARNING: 0, SUGGESTION: 0 });
+      }
+
+      // Findings by severity, summed over EVERY review of the PR — a counter
+      // opens a modal onto the same set the detail page renders, so a
+      // latest-review-only count would visibly disagree with it.
+      const findingRows = await container.db
+        .select({ prId: t.reviews.prId, severity: t.findings.severity, n: count() })
+        .from(t.findings)
+        .innerJoin(t.reviews, eq(t.findings.reviewId, t.reviews.id))
+        .where(inArray(t.reviews.prId, prIds))
+        .groupBy(t.reviews.prId, t.findings.severity);
+      for (const row of findingRows) {
+        const counts = findingsByPr.get(row.prId);
+        // `findings.severity` is a plain text column, so an unknown value must
+        // be dropped rather than become a phantom key on the wire payload.
+        if (counts && row.severity in counts) {
+          counts[row.severity as keyof PrFindingCounts] += row.n;
         }
       }
     }
@@ -171,6 +209,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
         cost_usd: latestRunCostByPr.get(r.id) ?? null,
+        findings: findingsByPr.get(r.id) ?? null,
       };
     });
   });

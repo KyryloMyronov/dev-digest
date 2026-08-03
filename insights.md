@@ -43,6 +43,30 @@ package but not per task:
 Copying the adjacent pattern reproduces whatever the adjacent pattern already
 got wrong. The skill is the second opinion the repo can't give you.
 
+## 2026-08-03 — a new field on `PrMeta` must be `.nullish()`, whatever it means
+
+**Rubric:** Codebase Patterns
+**Symptom:** adding a plainly-required field to `PrMeta`
+(`vendor/shared/contracts/platform.ts`) breaks two call sites that have nothing
+to do with the feature — the GitHub adapter stops typechecking, and the
+`/pulls/:id` detail handler starts demanding a value it cannot compute.
+**Cause:** `PrMeta` is triple-duty. It is (1) the list-row payload of
+`GET /repos/:id/pulls`, (2) the return type of
+`GitHubClient.listPullRequests()` (`vendor/shared/adapters.ts`), which maps
+GitHub's PR-list JSON and knows nothing about our reviews, and (3) the base that
+`PrDetail` extends, served by a handler that never runs the list's aggregate
+queries. Anything computed from *our* tables therefore cannot be required.
+`score` and `cost_usd` were already nullish for this reason, not only because
+their values are semantically optional — and `findings` (the per-severity
+counters, added 2026-08-03) joins them.
+**Fix:** declare list-only fields `.nullish()` and comment them
+`(list endpoint only)`, as the neighbours do. Then mirror the file into
+`client/src/vendor/shared/contracts/platform.ts` — `cp` it, the two are meant to
+stay byte-identical, and `diff -q` them before you finish. A `null` that means
+"we never computed this here" is not the same fact as the domain's own null, so
+resolve the display default at the UI (the findings cell renders a missing
+breakdown as `0/0/0`; the score cell renders it as `—`), never in the contract.
+
 ## 2026-08-02 — LLM cost: `null` and `0` are different facts, keep them apart
 
 **Rubric:** Codebase Patterns

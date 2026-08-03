@@ -27,6 +27,7 @@ export type {
   PrCommit,
   PrReviewComment,
   PrStatus,
+  PrFindingCounts,
   SpecFile,
   IndexStatus,
 } from "@devdigest/shared";

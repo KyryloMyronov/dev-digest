@@ -1,4 +1,4 @@
-import type { PrMeta } from "../../../../lib/types";
+import type { PrMeta, Severity } from "../../../../lib/types";
 
 /** Constants for the PR list page (/repos/:repoId/pulls). */
 
@@ -24,7 +24,16 @@ export const SIZE_COLOR: Record<string, string> = {
 };
 
 /** Grid template for both the header row and PR rows. */
-export const GRID = "1fr 132px 92px 60px 72px 118px 78px";
+export const GRID = "1fr 132px 92px 60px 112px 72px 118px 78px";
+
+/**
+ * Severities in the order their counters read across the FINDINGS cell —
+ * worst first. Every row renders all three, so the column has a stable shape.
+ */
+export const SEVERITY_ORDER: readonly Severity[] = ["CRITICAL", "WARNING", "SUGGESTION"];
+
+/** Width of the per-severity findings modal opened from a counter. */
+export const FINDINGS_MODAL_WIDTH = 760;
 
 /** Line-count thresholds for the S/M/L size bucket. */
 export const SIZE_SMALL_MAX = 100;
@@ -44,6 +53,7 @@ export const COLUMN_KEYS: string[] = [
   "author",
   "size",
   "score",
+  "findings",
   "cost",
   "status",
   "updated",
