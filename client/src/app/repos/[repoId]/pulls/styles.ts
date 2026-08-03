@@ -55,6 +55,15 @@ export const s = {
     display: "inline-flex",
     borderRadius: 5,
   } satisfies CSSProperties,
+  /**
+   * A zero counter: same badge, dimmed and inert, so "nothing at this level"
+   * is still legible without competing with the levels that do have findings.
+   * Matches the 0.6 opacity FindingCard uses for a muted finding.
+   */
+  counterEmpty: {
+    display: "inline-flex",
+    opacity: 0.45,
+  } satisfies CSSProperties,
   costCell: {
     fontSize: 12,
     color: "var(--text-muted)",

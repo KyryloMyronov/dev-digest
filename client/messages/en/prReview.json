@@ -99,6 +99,7 @@
     "findings": {
       "none": "—",
       "counterLabel": "Show {count} {severity} findings",
+      "zeroLabel": "No {severity} findings",
       "modalTitle": "{severity} findings",
       "modalSubtitle": "#{number} · {title}",
       "count": "{count, plural, =1 {# finding} other {# findings}}",
