@@ -116,6 +116,7 @@ Flags: `--no-seed` · `--no-client` · `--db-only` · `--help`.
 ## Manual steps (what the script does)
 
 ```sh
+
 docker compose up -d                                   # Postgres + pgvector
 
 cd server && pnpm install
