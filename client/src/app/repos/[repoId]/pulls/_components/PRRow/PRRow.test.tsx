@@ -55,9 +55,12 @@ describe("PRRow — cost cell", () => {
   });
 
   it("renders — for a PR with no cost, and never n/a at list altitude", () => {
-    // score stays set: an unreviewed PR renders its own "—" in the score cell,
-    // and this assertion is about the cost cell.
-    renderRow(pr({ cost_usd: null, score: 61 }));
+    // score and findings stay set: an unreviewed PR renders its own "—" in the
+    // score cell, and a PR with no findings renders one in the findings cell.
+    // This assertion is about the cost cell, so neither may contribute a dash.
+    renderRow(
+      pr({ cost_usd: null, score: 61, findings: { CRITICAL: 1, WARNING: 0, SUGGESTION: 0 } }),
+    );
     expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.queryByText("n/a")).not.toBeInTheDocument();
   });

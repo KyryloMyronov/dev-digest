@@ -154,6 +154,20 @@ export type Repo = z.infer<typeof Repo>;
 export const PrStatus = z.enum(['needs_review', 'reviewed', 'stale', 'open', 'closed', 'merged']);
 export type PrStatus = z.infer<typeof PrStatus>;
 
+/**
+ * Per-severity finding counts for one PR (list endpoint only). Counts every
+ * finding of every review on the PR — the same set the detail page's Findings
+ * tab renders — so the list counters and that tab can never disagree. Absent
+ * severities are 0, never missing: "no critical findings" is a fact worth
+ * rendering, unlike a null score which means "never reviewed".
+ */
+export const PrFindingCounts = z.object({
+  CRITICAL: z.number().int(),
+  WARNING: z.number().int(),
+  SUGGESTION: z.number().int(),
+});
+export type PrFindingCounts = z.infer<typeof PrFindingCounts>;
+
 export const PrMeta = z.object({
   id: z.string().nullish(),
   number: z.number().int(),
@@ -174,6 +188,9 @@ export const PrMeta = z.object({
   // has run yet and when that run's model isn't priced — the list doesn't
   // distinguish them, and renders either as "—".
   cost_usd: z.number().nullish(),
+  // Per-severity findings breakdown (list endpoint only — the detail endpoint
+  // serves the findings themselves through /pulls/:id/reviews).
+  findings: PrFindingCounts.nullish(),
 });
 export type PrMeta = z.infer<typeof PrMeta>;
 

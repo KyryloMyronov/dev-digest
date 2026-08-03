@@ -1,7 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import type { PrMeta, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
+import type {
+  PrMeta,
+  PrDetail,
+  GitHubClient,
+  PrReviewComment,
+  PrFindingCounts,
+} from '@devdigest/shared';
 import { PrCommentInput } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
 import { getContext } from '../_shared/context.js';
@@ -111,13 +117,15 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
-    // Latest-review SCORE per PR for the list's score ring. Computed on read
-    // from reviews (no FK denorm); the list is small, so one IN-query + JS
-    // grouping is cheap. (The per-severity FINDINGS breakdown is intentionally
-    // not surfaced on the list — findings live on the PR detail page.)
+    // Latest-review SCORE per PR for the list's score ring, plus the
+    // per-severity FINDINGS breakdown behind the list's counters. Both are
+    // computed on read from reviews (no FK denorm); the list is small, so one
+    // IN-query + JS grouping is cheap.
     const prIds = rows.map((r) => r.id);
     const latestReviewByPr = new Map<string, { score: number | null }>();
     const latestRunCostByPr = new Map<string, number | null>();
+    const reviewedPrs = new Set<string>();
+    const findingCountsByPr = new Map<string, PrFindingCounts>();
     if (prIds.length > 0) {
       const reviewRows = await container.db
         .select({ prId: t.reviews.prId, score: t.reviews.score })
@@ -143,6 +151,34 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         if (run.prId && !latestRunCostByPr.has(run.prId)) {
           latestRunCostByPr.set(run.prId, run.costUsd);
         }
+      }
+
+      // Findings per PR per severity. Counted over EVERY review of the PR (not
+      // just the latest, and not just kind='review'), because that is the set
+      // the detail page renders — a counter that disagreed with the tab it
+      // opens onto would read as a bug. Aggregated in JS rather than with a
+      // GROUP BY so an unknown severity string in the column can't silently
+      // become a phantom bucket; only the three known ones are kept.
+      const findingRows = await container.db
+        .select({ prId: t.reviews.prId, severity: t.findings.severity })
+        .from(t.findings)
+        .innerJoin(t.reviews, eq(t.findings.reviewId, t.reviews.id))
+        .where(inArray(t.reviews.prId, prIds));
+      // "Reviewed at all" is what separates an all-zero breakdown from a null
+      // one, and it can't be read off `latestReviewByPr` (that one is filtered
+      // to kind='review').
+      const reviewedRows = await container.db
+        .select({ prId: t.reviews.prId })
+        .from(t.reviews)
+        .where(inArray(t.reviews.prId, prIds));
+      for (const rv of reviewedRows) reviewedPrs.add(rv.prId);
+      for (const f of findingRows) {
+        const counts =
+          findingCountsByPr.get(f.prId) ?? { CRITICAL: 0, WARNING: 0, SUGGESTION: 0 };
+        if (f.severity === 'CRITICAL' || f.severity === 'WARNING' || f.severity === 'SUGGESTION') {
+          counts[f.severity] += 1;
+        }
+        findingCountsByPr.set(f.prId, counts);
       }
     }
 
@@ -171,6 +207,10 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
         cost_usd: latestRunCostByPr.get(r.id) ?? null,
+        // Reviewed-but-clean is an all-zero breakdown; never-reviewed is null.
+        findings:
+          findingCountsByPr.get(r.id) ??
+          (reviewedPrs.has(r.id) ? { CRITICAL: 0, WARNING: 0, SUGGESTION: 0 } : null),
       };
     });
   });

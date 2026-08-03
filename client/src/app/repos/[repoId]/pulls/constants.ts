@@ -1,4 +1,4 @@
-import type { PrMeta } from "../../../../lib/types";
+import type { PrMeta, Severity } from "../../../../lib/types";
 
 /** Constants for the PR list page (/repos/:repoId/pulls). */
 
@@ -23,8 +23,23 @@ export const SIZE_COLOR: Record<string, string> = {
   L: "var(--crit)",
 };
 
-/** Grid template for both the header row and PR rows. */
-export const GRID = "1fr 132px 92px 60px 72px 118px 78px";
+/**
+ * Grid template for both the header row and PR rows. Every column but the
+ * title is fixed, so each one added is width taken from the title — the
+ * FINDINGS column is sized to exactly three compact severity badges
+ * (~38px each + two 6px gaps) and no wider.
+ */
+export const GRID = "1fr 132px 92px 60px 132px 72px 118px 78px";
+
+/**
+ * Severity order for the FINDINGS counters — worst first, so the eye hits
+ * CRITICAL before it reads any number. Also the order the modal's severity is
+ * chosen from, so counter position and modal content stay in lock-step.
+ */
+export const SEVERITY_ORDER: Severity[] = ["CRITICAL", "WARNING", "SUGGESTION"];
+
+/** Width of the per-severity findings modal opened from a counter. */
+export const FINDINGS_MODAL_WIDTH = 660;
 
 /** Line-count thresholds for the S/M/L size bucket. */
 export const SIZE_SMALL_MAX = 100;
@@ -44,6 +59,7 @@ export const COLUMN_KEYS: string[] = [
   "author",
   "size",
   "score",
+  "findings",
   "cost",
   "status",
   "updated",

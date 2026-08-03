@@ -14,6 +14,50 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-03 — `pnpm build` while `dev.sh` is running guts the live dev server
+
+**Rubric:** What Doesn't Work
+**Symptom:** the studio suddenly renders completely unstyled and dead — no
+theme, no layout, no interactivity — with the API healthy and the page still
+returning 200. Reads exactly like a catastrophic CSS/component regression. It
+is not: `/_next/static/css/app/layout.css` and `/_next/static/chunks/main-app.js`
+both 404 while `/_next/static/chunks/webpack.js` still returns 200.
+**Cause:** `next dev` and `next build` share one `.next/`. Running
+`cd client && pnpm build` while `./scripts/dev.sh` holds :3000 makes the
+production build delete the dev server's emitted chunks and replace them with
+hashed production ones. The dev server keeps serving HTML that references the
+dev filenames it believes it compiled, so every asset it points at is gone.
+Nothing in the normal workflow warns you — `dev.sh` and `e2e.sh` both use
+`next dev` (e2e on :3100) and never build, so the collision only appears when
+you run the build by hand as a check.
+**Fix:** don't build against a live dev server. `typecheck` + `pnpm test` cover
+what a local `next build` would have told you. If you do need the build, stop
+`dev.sh` first. Recovery is `rm -rf client/.next` and restart `./scripts/dev.sh`
+— nothing less works, because the running server will not re-emit: touching a
+source file, or even deleting `.next` underneath it, still leaves both paths
+404ing. Postgres is unaffected (`dev.sh`'s cleanup only stops the API).
+
+## 2026-08-03 — a wrong next-intl key renders the key and keeps the suite green
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** a new PR-list cell rendered the literal string `list.findings.none`
+instead of `—`, and every client test still passed — including one asserting
+that the row shows `—`. The only trace was `IntlError: MISSING_MESSAGE` on
+stderr, buried under the usual jsdom chart warnings.
+**Cause:** two things compound. (1) next-intl resolves a missing key to the key
+*path* and reports it through `onError`; nothing throws, so no assertion can
+see it. (2) `messages/en/prReview.json` nests by SCREEN, not by feature: every
+PR-list string lives under `list.` (`list.columns.*`, `list.findings.*`) while
+the finding-card strings sit at the top level (`finding.accepted`,
+`finding.suggestedFix`). A component doing `useTranslations("prReview")` +
+`t("findings.none")` therefore asks for `prReview.findings.none`, which does
+not exist — one namespace level short.
+**Fix:** check the nesting before writing the call —
+`node -e 'console.log(Object.keys(require("./messages/en/prReview.json").list))'`
+— and after adding any `t()`, run `pnpm test` and grep the output for
+`MISSING_MESSAGE`. That warning is the only signal you will get; a green suite
+proves nothing about your keys.
+
 ## 2026-07-30 — `ERR_PNPM_IGNORED_BUILDS` on install (esbuild, sharp)
 
 **Rubric:** Recurring Errors & Fixes
