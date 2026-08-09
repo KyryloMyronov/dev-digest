@@ -16,10 +16,12 @@ import { RepoNotFound } from "@/components/repo-not-found";
 import { usePulls, useRefreshRepo } from "@/lib/hooks";
 import { useActiveRepo, useRepoNotFound } from "@/lib/repo-context";
 import { ApiError } from "@/lib/api";
+import type { PrMeta, Severity } from "@/lib/types";
 import { COLUMN_KEYS, RIGHT_ALIGNED, SKELETON_ROWS } from "./constants";
 import { s } from "./styles";
 import { PRRow } from "./_components/PRRow";
 import { FilterBar } from "./_components/FilterBar";
+import { FindingsModal } from "./_components/FindingsModal";
 
 /** Open PRs carry a derived review status; everything else is merged/closed. */
 const OPEN_STATUSES = new Set(["needs_review", "reviewed", "stale"]);
@@ -45,6 +47,15 @@ export default function PullsPage() {
 
   const [query, setQuery] = React.useState("");
   const [sort, setSort] = React.useState("newest");
+
+  // The findings modal is owned HERE, not by the row that opens it. `Modal` is
+  // position:fixed but still a DOM child of wherever it mounts, so from inside a
+  // PRRow every click in it — the backdrop's close click included — would bubble
+  // into the row's router.push and navigate away instead of showing the modal.
+  const [findingsFor, setFindingsFor] = React.useState<{
+    pr: PrMeta;
+    severity: Severity;
+  } | null>(null);
 
   const q = query.trim().toLowerCase();
   const filtered = (pulls ?? [])
@@ -127,9 +138,24 @@ export default function PullsPage() {
             }
           />
         ) : (
-          filtered.map((pr) => <PRRow key={pr.number} pr={pr} repoId={repoId} />)
+          filtered.map((pr) => (
+            <PRRow
+              key={pr.number}
+              pr={pr}
+              repoId={repoId}
+              onOpenFindings={(severity) => setFindingsFor({ pr, severity })}
+            />
+          ))
         )}
       </div>
+
+      {findingsFor && (
+        <FindingsModal
+          pr={findingsFor.pr}
+          severity={findingsFor.severity}
+          onClose={() => setFindingsFor(null)}
+        />
+      )}
     </AppShell>
   );
 }

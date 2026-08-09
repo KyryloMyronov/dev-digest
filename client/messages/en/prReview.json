@@ -91,9 +91,26 @@
       "author": "Author",
       "size": "Size",
       "score": "Score",
+      "findings": "Findings",
       "cost": "Cost",
       "status": "Status",
       "updated": "Updated"
+    },
+    "findings": {
+      "severity": {
+        "CRITICAL": "Critical",
+        "WARNING": "Warning",
+        "SUGGESTION": "Suggestion"
+      },
+      "counterLabel": "{count, plural, one {Show # {severity} finding} other {Show # {severity} findings}}",
+      "zeroLabel": "No {severity} findings",
+      "modalTitle": "{severity} findings",
+      "modalSubtitle": "#{number} · {title}",
+      "count": "{count, plural, one {# finding} other {# findings}}",
+      "emptyTitle": "No findings",
+      "emptyBody": "This pull request has no {severity} findings.",
+      "errorTitle": "Couldn’t load findings",
+      "errorBody": "The engine returned an error."
     },
     "filesCount": "{count} files",
     "errorTitle": "Couldn’t load pull requests",

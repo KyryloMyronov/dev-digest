@@ -5,13 +5,23 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Icon, Avatar, Badge, CircularScore } from "@devdigest/ui";
-import type { PrMeta } from "@/lib/types";
+import type { PrMeta, Severity } from "@/lib/types";
 import { formatCost } from "@/lib/format-cost";
 import { SIZE_COLOR, STATUS_META } from "../../constants";
 import { relativeTime, sizeOf } from "../../helpers";
 import { s } from "../../styles";
+import { FindingsCounters } from "../FindingsCounters";
 
-export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
+export function PRRow({
+  pr,
+  repoId,
+  onOpenFindings,
+}: {
+  pr: PrMeta;
+  repoId: string;
+  /** Raised to the page, which owns the modal — see the note in page.tsx. */
+  onOpenFindings: (severity: Severity) => void;
+}) {
   const t = useTranslations("prReview");
   const router = useRouter();
   const [h, setH] = React.useState(false);
@@ -53,6 +63,9 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
         ) : (
           <span style={s.muted}>—</span>
         )}
+      </div>
+      <div>
+        <FindingsCounters counts={pr.findings} onOpen={onOpenFindings} />
       </div>
       <div className="mono" style={s.costCell}>
         {formatCost(pr.cost_usd, "—")}

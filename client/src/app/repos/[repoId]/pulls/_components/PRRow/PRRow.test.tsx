@@ -2,17 +2,25 @@
  * PRRow — the COST cell. The list has no way to tell "nothing has run yet" from
  * "the latest run's model isn't priced" (both arrive as a null `cost_usd`), so
  * unlike the timeline it renders a single neutral "—" for either.
+ *
+ * Plus the FINDINGS cell's one integration risk: the whole row navigates on
+ * click, so a counter click has to reach `onOpenFindings` *instead of* the
+ * router — not as well as it.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { PrMeta } from "@devdigest/shared";
 import messages from "../../../../../../../messages/en/prReview.json";
 import { PRRow } from "./PRRow";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => {} }) }));
+const push = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  push.mockReset();
+});
 
 function pr(o: Partial<PrMeta>): PrMeta {
   return {
@@ -35,12 +43,13 @@ function pr(o: Partial<PrMeta>): PrMeta {
   };
 }
 
-function renderRow(p: PrMeta) {
-  return render(
+function renderRow(p: PrMeta, onOpenFindings = vi.fn()) {
+  render(
     <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
-      <PRRow pr={p} repoId="repo-1" />
+      <PRRow pr={p} repoId="repo-1" onOpenFindings={onOpenFindings} />
     </NextIntlClientProvider>,
   );
+  return { onOpenFindings };
 }
 
 describe("PRRow — cost cell", () => {
@@ -65,5 +74,27 @@ describe("PRRow — cost cell", () => {
   it("keeps a free model as $0.00, distinct from the — placeholder", () => {
     renderRow(pr({ cost_usd: 0 }));
     expect(screen.getByText("$0.00")).toBeInTheDocument();
+  });
+});
+
+describe("PRRow — findings cell", () => {
+  it("raises the clicked severity instead of navigating to the PR", () => {
+    const { onOpenFindings } = renderRow(
+      pr({ findings: { CRITICAL: 2, WARNING: 0, SUGGESTION: 1 } }),
+    );
+    fireEvent.click(screen.getByLabelText("Show 2 Critical findings"));
+    expect(onOpenFindings).toHaveBeenCalledWith("CRITICAL");
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("still navigates when the row is clicked anywhere else", () => {
+    renderRow(pr({ findings: { CRITICAL: 2, WARNING: 0, SUGGESTION: 1 } }));
+    fireEvent.click(screen.getByText("Add rate limiting"));
+    expect(push).toHaveBeenCalledWith("/repos/repo-1/pulls/482");
+  });
+
+  it("renders counters for a PR the wire sent no breakdown for", () => {
+    renderRow(pr({}));
+    expect(screen.getAllByText("0")).toHaveLength(3);
   });
 });

@@ -40,6 +40,24 @@ export const s = {
   } satisfies CSSProperties,
   sizeBadgeBorder: (color: string): CSSProperties => ({ border: `1px solid ${color}` }),
   scoreCell: { display: "flex", alignItems: "center" } satisfies CSSProperties,
+  findingsCell: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+  } satisfies CSSProperties,
+  counterBtn: {
+    display: "inline-flex",
+    background: "none",
+    border: 0,
+    padding: 0,
+    cursor: "pointer",
+  } satisfies CSSProperties,
+  // A zero counter is inert: same footprint, dimmed, no pointer affordance.
+  counterEmpty: {
+    display: "inline-flex",
+    opacity: 0.4,
+    cursor: "default",
+  } satisfies CSSProperties,
   costCell: {
     fontSize: 12,
     color: "var(--text-muted)",
