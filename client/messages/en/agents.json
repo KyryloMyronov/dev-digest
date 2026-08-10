@@ -90,8 +90,15 @@
   "skills": {
     "title": "Skills",
     "enabledCount": "{linked} of {total} enabled",
-    "filterPlaceholder": "Filter skills…",
-    "orderHint": "Order matters — earlier skills appear earlier in the assembled prompt. Toggle to attach."
+    "orderHint": "Order matters — earlier skills appear earlier in the assembled prompt. The checkbox puts a skill in this agent's prompt; unchecking keeps it attached and in place, but leaves its block out.",
+    "emptyTitle": "No skills attached",
+    "emptyBody": "Attach a skill below to add its guidance to this agent's prompt.",
+    "moveUp": "Move {name} up",
+    "moveDown": "Move {name} down",
+    "detach": "Detach {name} from this agent",
+    "globallyDisabled": "off in the library",
+    "availableTitle": "Attach a skill",
+    "availableEmpty": "Every skill in the library is already attached."
   },
   "mount": {
     "body": "Mount point for {owner}. The Agent Editor shell + tab routing are wired by A2 — {owner} renders this tab."

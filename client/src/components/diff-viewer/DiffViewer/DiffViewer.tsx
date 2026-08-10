@@ -24,8 +24,12 @@ export function DiffViewer({
   }
   return (
     <div style={s.list}>
-      {files.map((f, i) => (
-        <FileCard key={i} file={f} commenting={commenting} />
+      {/* Keyed by path, not index: FileCard owns its expanded/collapsed state,
+          and the file list changes shape when the PR gains a commit. With index
+          keys, removing a file slides every card's open state onto its
+          neighbour. Paths are unique within a PR by definition. */}
+      {files.map((f) => (
+        <FileCard key={f.path} file={f} commenting={commenting} />
       ))}
     </div>
   );

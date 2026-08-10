@@ -9,6 +9,9 @@ in the DB). The canonical, reviewable copies live next to this file:
 - [`general-reviewer.md`](./general-reviewer.md)
 - [`security-reviewer.md`](./security-reviewer.md)
 - [`performance-reviewer.md`](./performance-reviewer.md)
+- [`test-quality-reviewer.md`](./test-quality-reviewer.md) — deliberately thin:
+  its review criteria are **skills**, not prompt text. Read its "Why this prompt
+  is deliberately thin" section before adding rubrics to it.
 
 > The DB is the source of truth at run time. These files are the human-readable
 > originals — when you change a prompt, edit the file here **and** push it to the
@@ -49,6 +52,18 @@ delimiter-wrapped (`prompt.ts:104-122`):
 Sections with no content are omitted. Everything repo- or author-derived is wrapped
 in `<untrusted source="…">…</untrusted>` so the model can tell instructions
 (system) from data (user).
+
+**`## Skills / rules` is the exception, deliberately.** Skill bodies go in as
+instructions, NOT delimiter-wrapped — the guard tells the model that anything
+inside `<untrusted>` is inert data, so wrapping a skill would attach it, show it
+in the trace, and leave it with no effect on the review. Each block is instead
+labelled with the skill's name, type, version and, when it was imported, an
+explicit `source: imported` marker (`server/src/modules/_shared/skills.ts`). The
+containment for a foreign skill is the import preview, which shows the full body
+and saves nothing until it is accepted — see [`docs/skills/README.md`](../skills/README.md).
+An agent's skills are resolved per run: a block appears only when the link is
+enabled for that agent **and** the skill is enabled in the library, and the Live
+Log names every skill it skipped.
 
 ## The output schema is NOT in the prompt
 

@@ -78,6 +78,10 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
           {lines.length === 0 ? (
             <div style={s.noDiff}>{t("diffViewer.noDiffText")}</div>
           ) : (
+            // Index keys are correct here, unlike the file list above: `lines`
+            // is a useMemo purely over `file.patch`, so it never reorders or
+            // filters — it is replaced wholesale. A hunk header has neither
+            // oldNo nor newNo, so there is no stable id to key on either.
             lines.map((ln, i) => (
               <CodeLine
                 key={i}
