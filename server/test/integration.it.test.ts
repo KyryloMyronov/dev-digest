@@ -144,4 +144,28 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
     expect(poll.json().synced).toBeGreaterThan(0);
     await app.close();
   });
+
+  it('GET /workspace reports the clone dir and a summary per repo', async () => {
+    const config = loadConfig({ ...process.env, NODE_ENV: 'test' } as NodeJS.ProcessEnv);
+    const app = await buildApp({
+      config,
+      db: pg.handle.db,
+      overrides: { git: new MockGitClient(), github: new MockGitHubClient() },
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/workspace' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.cloneDir).toBe(config.cloneDir);
+    expect(body.workspaceId).toEqual(expect.any(String));
+    expect(body.repos.length).toBeGreaterThan(0);
+
+    // `cloned` is derived from clone_path, not stored — the distinction matters
+    // because a repo row exists before its clone job finishes.
+    for (const r of body.repos) {
+      expect(r).toMatchObject({ id: expect.any(String), full_name: expect.any(String) });
+      expect(r.cloned).toBe(Boolean(r.clone_path));
+    }
+    await app.close();
+  });
 });

@@ -14,6 +14,28 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-09 — `wait --text` matches RENDERED text, so `text-transform` breaks it
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** a flow step asserting a section heading times out and fails, while
+the string is provably correct — it is copied verbatim from
+`client/messages/en/*.json`, the component renders it, and the screenshot on
+failure shows it on screen. `wait --text "Attach a skill"` fails;
+`wait --text "Order matters"` two lines earlier passes.
+**Cause:** the heading is styled `textTransform: "uppercase"` (the SECTION LABEL
+pattern used across the studio — `SkillsTab/styles.ts` `availableHead`,
+`SkillPreview/styles.ts` `sectionLabel`). `wait --text` compares the **rendered**
+text, and Chrome's `innerText` applies `text-transform`, so the only string that
+matches is `ATTACH A SKILL`. `textContent` would have matched the original case,
+which is why the message catalogue looks like the right source and isn't.
+**Fix:** do not assert on a heading carrying `text-transform` — assert on the
+section's CONTENT instead, which is a stronger claim anyway (in
+`09-skills.flow.json`, `api-contract-gate` appearing in the attachable list
+proves the section rendered *and* that the filtering is right, where the label
+proved neither). If a label really is the only anchor available, match the
+transformed casing and say why in the step's `label`. Before blaming the
+selector, check the component's `styles.ts` for `textTransform`.
+
 ## 2026-08-03 — running the flows with no global `agent-browser`, and under Colima
 
 **Rubric:** What Works

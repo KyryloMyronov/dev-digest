@@ -47,8 +47,25 @@ messages/en/                 next-intl message catalogues
   [`src/vendor/ui/README.md`](src/vendor/ui/README.md).
 - **User-facing strings go through next-intl** (`messages/en/`), not inline
   literals.
-- Server Components by default; `"use client"` only where interactivity or a
-  hook requires it. All React Query hooks are client-side.
+- **The studio is a client-rendered SPA on an App Router shell — deliberately.**
+  Every route's view is `"use client"`; `page.tsx` is either a thin entry that
+  renders one client view (`agents`, `settings`) or carries the directive
+  itself. Data comes from `lib/hooks/` (React Query) against the API on `:3001`.
+  This is NOT the RSC-first architecture Next.js docs assume, and it is not
+  drift — the API is a separate process, so server-rendering a page would mean
+  the Next server proxying to Fastify, adding a hop and a second failure mode
+  to a local-first tool whose API may legitimately be down.
+  **Consequences to accept:** no server-side data fetching, no Server Actions,
+  no DAL; first paint is a skeleton; every screen must have a real loading and
+  `ApiError` state. Do not add `'use server'` or move fetching into RSC without
+  revisiting this decision as a whole.
+  Keep `page.tsx` thin regardless — the view, its styles, constants and i18n
+  colocate under `_components/<ViewName>/`.
+- **Cache keys come from `lib/hooks/keys.ts`** — never inline a
+  `queryKey: ["thing", id]` literal. The factories are what tie a `useQuery` to
+  the `invalidateQueries` meant to refresh it; a mistyped literal produces a
+  mutation that looks successful while the UI keeps stale data, with no type or
+  runtime error.
 
 ## Gotchas
 

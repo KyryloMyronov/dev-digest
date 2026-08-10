@@ -6,7 +6,10 @@ import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
   PERFORMANCE_REVIEWER_PROMPT,
+  TEST_QUALITY_REVIEWER_PROMPT,
 } from './seed-prompts.js';
+import { SEED_SKILLS } from './seed-skills.js';
+import { CONTROL_EXPERIMENT_PRS } from './seed-fixtures.js';
 
 /** Default provider/model for the built-in reviewer agents. */
 const DEFAULT_PROVIDER = 'openrouter' as const;
@@ -17,18 +20,29 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  * workspace/user and the demo fixtures.
  *
  * Seeds: default workspace + system user + membership, default settings,
- * demo repo (acme/payments-api), its seven demo PRs (#482 #479 #477 #471 #468
- * #460 #455) each with files/commits and a review, findings on #482 and #455,
- * and the three built-in agents (General + Security + Performance), all on the
- * default openrouter/deepseek-v4-flash provider+model.
+ * demo repo (acme/payments-api), its nine demo PRs, the four built-in agents
+ * (General + Security + Performance + Test Quality) on the default
+ * openrouter/deepseek-v4-flash provider+model, and the built-in skills linked
+ * to them.
  *
- * The PR set is deliberately varied — S/M/L sizes, scores 44-95, all three
- * review states, and findings counters ranging from all-zero to a no-critical
- * spread — because the Pull Requests list is the screen the starter opens on and
- * a single row demonstrates none of it.
+ * The PRs come in two groups, seeded for different reasons:
  *
- * Course lessons populate the other tables (skills, conventions, memory, eval,
- * …) once their features are built — they start empty here.
+ * - **The list demo — #482 #479 #477 #471 #468 #460 #455.** Each has
+ *   files/commits and a review; #482 and #455 also carry findings. The set is
+ *   deliberately varied — S/M/L sizes, scores 44-95, all three review states,
+ *   findings counters from all-zero to a no-critical spread — because the Pull
+ *   Requests list is the screen the starter opens on and a single row
+ *   demonstrates none of it.
+ * - **The control experiment — #486 and #489** (`./seed-fixtures.ts`). Two PRs
+ *   seeded UNREVIEWED, each planted with a defect that one specific skill
+ *   exists to catch, so the same agent can be run on the same PR with its
+ *   skills off and then on. #486 is the control for the **Test Quality
+ *   Reviewer** with `uncovered-branches` + `corner-cases`; #489 is the control
+ *   for the **General Reviewer** with `api-contract-gate`. Walkthrough:
+ *   `docs/skills/control-experiment.md`.
+ *
+ * Course lessons populate the other tables (conventions, memory, eval, …) once
+ * their features are built — they start empty here.
  */
 
 export const DEFAULT_WORKSPACE_NAME = 'default';
@@ -186,7 +200,7 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     ]);
   }
 
-  // ---- the rest of the demo PR list (#479 … #455) ----
+  // ---- the rest of the demo PR list (#479 … #455) + the control fixtures ----
   // The starter ships a PR *list*, not a single PR: the Pull Requests screen only
   // reads as designed with a spread of sizes, scores, review states and findings
   // counters. Same idempotency rule as #482 — keyed on (repo, number), so a
@@ -206,8 +220,16 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     deletions: number;
     /** Drives the UPDATED column, and past STALE_DAYS the `stale` status. */
     updatedHoursAgo: number;
-    files: { path: string; additions: number; deletions: number }[];
+    /**
+     * `patch` is only set on the control-experiment fixtures: it is what
+     * `diffFromPrFiles` reconstructs the review input from, so a PR without it
+     * cannot be reviewed for real. The list-demo PRs never run an agent, so
+     * they carry file names and counts only.
+     */
+    files: { path: string; additions: number; deletions: number; patch?: string }[];
     commitMessage: string;
+    /** PR description. Falls back to the review summary when absent. */
+    body?: string;
     /**
      * Whether the CURRENT head is the commit the review ran against. False ⇒ the
      * author pushed after the review, so the row keeps its score but reads
@@ -432,6 +454,14 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
         ],
       },
     },
+    // ---- control-experiment fixtures (#486, #489) --------------------------
+    // Bodies live in ./seed-fixtures.ts because the unified-diff patches are
+    // bulky. Mapped in as never-reviewed rows — no review, no findings, and
+    // therefore no lastReviewedSha — because running the agents live IS the
+    // experiment:
+    //   #486 → Test Quality Reviewer + `uncovered-branches`, `corner-cases`
+    //   #489 → General Reviewer + `api-contract-gate`
+    ...CONTROL_EXPERIMENT_PRS.map((p) => ({ ...p, headReviewed: false, review: null })),
   ];
 
   for (const d of demoPrs) {
@@ -460,7 +490,7 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
         additions: d.additions,
         deletions: d.deletions,
         filesCount: d.files.length,
-        body: d.review?.summary ?? null,
+        body: d.body ?? d.review?.summary ?? null,
         openedAt: hoursAgo(d.updatedHoursAgo + 24),
         updatedAt,
       })
@@ -531,6 +561,19 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       version: 1,
       createdBy: userId,
     },
+    {
+      workspaceId,
+      name: 'Test Quality Reviewer',
+      description:
+        'Reviews the tests in a PR: uncovered branches, missing corner cases, ' +
+        'over-mocking, flake signals.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: TEST_QUALITY_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
   ];
   for (const a of seedAgents) {
     const [existing] = await db
@@ -540,7 +583,66 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     if (!existing) await db.insert(t.agents).values(a);
   }
 
+  await seedSkills(db, workspaceId);
+
   return { workspaceId, userId };
+}
+
+/**
+ * Seed the built-in skills and link each to its agents, in the order declared in
+ * `SEED_SKILLS[].agents`.
+ *
+ * Idempotent by NAME, like the agents above: an existing skill is left exactly
+ * as it is, body included, so re-running the seed never clobbers an edit made in
+ * the UI. Links are upserted (order recomputed from the current link count), and
+ * a link that already exists is left alone rather than reset to enabled — a
+ * disabled link is the state the control experiment runs in, and a re-seed that
+ * silently re-enabled it would look like the toggle failed to persist.
+ */
+async function seedSkills(db: Db, workspaceId: string): Promise<void> {
+  for (const s of SEED_SKILLS) {
+    const [existing] = await db
+      .select()
+      .from(t.skills)
+      .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.name, s.name)));
+
+    let skillId = existing?.id;
+    if (!skillId) {
+      const [row] = await db
+        .insert(t.skills)
+        .values({
+          workspaceId,
+          name: s.name,
+          description: s.description,
+          type: s.type,
+          source: s.source,
+          body: s.body,
+          enabled: true,
+          version: 1,
+        })
+        .returning();
+      skillId = row!.id;
+      await db.insert(t.skillVersions).values({ skillId, version: 1, body: s.body });
+    }
+
+    for (const agentName of s.agents) {
+      const [agent] = await db
+        .select()
+        .from(t.agents)
+        .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, agentName)));
+      if (!agent) continue;
+
+      const linked = await db
+        .select({ skillId: t.agentSkills.skillId })
+        .from(t.agentSkills)
+        .where(eq(t.agentSkills.agentId, agent.id));
+      if (linked.some((l) => l.skillId === skillId)) continue;
+
+      await db
+        .insert(t.agentSkills)
+        .values({ agentId: agent.id, skillId, order: linked.length, enabled: true });
+    }
+  }
 }
 
 // CLI entrypoint

@@ -65,6 +65,20 @@ jobs:
 
       - run: pnpm typecheck
 
+      # Architecture lint — the Onion dependency rule (rings, ports, module
+      # boundaries) as machine-checkable rules. Rationale and the rule-by-rule
+      # explanation: .claude/skills/onion-architecture/SKILL.md.
+      #
+      # Invoked directly rather than via `pnpm lint:arch` for the same reason
+      # the unit job inlines vitest: the config file is the source of truth,
+      # the package.json script is only a local convenience.
+      #
+      # Runs after the reviewer-core install above — dependency-cruiser follows
+      # the @devdigest/reviewer-core path alias into ../reviewer-core/src, and
+      # reports unresolvable modules if that package's deps are missing.
+      - name: Architecture lint (Onion dependency rule)
+        run: pnpm exec depcruise src --config .dependency-cruiser.cjs
+
   unit:
     name: tests
     runs-on: ubuntu-latest

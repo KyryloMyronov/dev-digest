@@ -17,6 +17,7 @@ pnpm dev                                          # tsx watch, :3001
 pnpm db:migrate                                   # required after a fresh clone or new migration
 pnpm db:generate                                  # drizzle-kit — generates the SQL, never hand-write it
 pnpm db:seed                                      # idempotent demo data
+pnpm lint:arch                                    # architecture lint (Onion dependency rule)
 pnpm test                                         # both suites
 pnpm exec vitest run --exclude '**/*.it.test.ts'  # unit only (hermetic, no Docker)
 pnpm exec vitest run .it.test                     # integration only (testcontainers Postgres)
@@ -35,12 +36,23 @@ src/prompts/           prompt bodies shipped as .md
 
 ## Non-default conventions
 
+**Architecture is a skill, and it is enforced.** The full ring model, the
+"where does this code go" table, and the rationale live in
+[`.claude/skills/onion-architecture/`](../.claude/skills/onion-architecture/SKILL.md).
+Run `pnpm lint:arch` before you commit — it fails on a crossed boundary. The
+headlines:
+
 - **Layering is one-directional: `routes.ts` → `service.ts` → `repository.ts`.**
   Routes are transport only — parse, map status codes, delegate. No business
   logic in a route, no HTTP types below it.
-- **Third-party libraries only inside `adapters/`, behind a `shared` interface.**
-  Nothing outside `adapters/` imports `octokit`, `simple-git`, `@ast-grep/napi`,
-  `dependency-cruiser`, or an LLM SDK directly.
+- **Third-party I/O libraries only inside `adapters/`, behind a `shared`
+  interface.** Nothing outside `adapters/` imports `octokit`, `simple-git`,
+  `@ast-grep/napi`, `dependency-cruiser`, or an LLM SDK directly. Pure
+  computation libraries (`zod`, `graphology`, `p-queue`) are not adapters and
+  need no port.
+- **A module's public surface is its `constants.ts` (job kinds) and
+  `types.ts`.** Its service, repository and routes are private to it —
+  cross-module work goes through the container or a job kind.
 - **`repo-intel` is reachable only through the `RepoIntel` facade**
   (`container.repoIntel`) — never its libraries. It degrades instead of throwing:
   array methods return `[]`, object methods carry `degraded`. Callers must treat
@@ -91,5 +103,6 @@ Testing strategy → [`../TESTING.md`](../TESTING.md) ·
 Prompt authoring → [`../docs/agent-prompts/`](../docs/agent-prompts/README.md) ·
 Learned gotchas → [`insights.md`](insights.md) · Unbuilt work → [`specs/`](specs/README.md)
 
-Relevant skills: `fastify-best-practices`, `drizzle-orm-patterns`,
+Relevant skills: `onion-architecture` (read first — it decides *where* code
+goes), then `fastify-best-practices`, `drizzle-orm-patterns`,
 `postgresql-table-design`, `zod`.

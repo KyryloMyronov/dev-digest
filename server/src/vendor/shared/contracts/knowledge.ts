@@ -131,6 +131,19 @@ export const Skill = z.object({
 });
 export type Skill = z.infer<typeof Skill>;
 
+/**
+ * One immutable snapshot of a skill's body, written on every edit that changes
+ * `body` (mirrors `agent_versions` for agents). `created_at` is an ISO string —
+ * the wire never carries a `Date`.
+ */
+export const SkillVersion = z.object({
+  skill_id: z.string(),
+  version: z.number().int(),
+  body: z.string(),
+  created_at: z.string(),
+});
+export type SkillVersion = z.infer<typeof SkillVersion>;
+
 export const CommunitySkill = z.object({
   name: z.string(),
   repo: z.string(),
@@ -191,12 +204,26 @@ export const Agent = z.object({
 });
 export type Agent = z.infer<typeof Agent>;
 
+/**
+ * One row of `agent_skills`. Linking and enabling are DELIBERATELY separate:
+ * `enabled: false` keeps the skill (and its position) attached to the agent but
+ * omits its body from the assembled prompt, which is what makes the on/off
+ * comparison observable in the run trace. Unlinking loses the order.
+ */
 export const AgentSkillLink = z.object({
   agent_id: z.string(),
   skill_id: z.string(),
   order: z.number().int(),
+  enabled: z.boolean(),
 });
 export type AgentSkillLink = z.infer<typeof AgentSkillLink>;
+
+/**
+ * A link with its skill inlined — what `GET /agents/:id/skills` serves, so the
+ * Skills tab renders names/types/bodies without an N+1 of `/skills/:id`.
+ */
+export const AgentSkillDetail = AgentSkillLink.extend({ skill: Skill });
+export type AgentSkillDetail = z.infer<typeof AgentSkillDetail>;
 
 // The immutable config snapshot captured in `agent_versions` whenever an agent's
 // config changes (everything but `enabled`). Mirrors the shape written by the

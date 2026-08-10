@@ -18,6 +18,58 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-08 — a product skill must NOT be wrapped in `<untrusted>`, and that is the point
+
+**Rubric:** What Doesn't Work
+**Symptom:** the obvious hardening for the skills feature — send an imported
+skill's body through `wrapUntrusted()` like the diff and the PR description —
+produces a skill that is attached, visible in the run trace's prompt-assembly
+section, counted in the token total, and has **zero** effect on the review. It
+looks completely wired. Nothing errors.
+**Cause:** `INJECTION_GUARD` (`reviewer-core/src/prompt.ts:16`) is appended to
+every agent's system message and states that everything inside
+`<untrusted>…</untrusted>` is DATA, never instructions, in any language. A skill
+*is* instructions — that is its entire purpose — so the guard and the wrapper
+cancel it out. The two mechanisms are not composable: one exists to neuter
+instructions, the other to deliver them.
+**Fix:** skill bodies go into `## Skills / rules` as instructions,
+**undelimited**. Containment is replaced by provenance + consent:
+`skillPromptBlock()` (`server/src/modules/_shared/skills.ts`) heads each block
+with the skill's name, type, version and — for `source` in
+`{imported_url, community}` — a literal `source: imported` marker, and the
+import flow parses in the browser, previews the full body, and writes nothing
+until the user accepts (`client/src/lib/skill-import.ts`). Two tests pin this so
+the "hardening" cannot be reintroduced silently:
+`server/test/skills-helpers.test.ts` ("does NOT wrap the body in `<untrusted>`")
+and `server/test/skills-prompt.it.test.ts`. Rationale for readers:
+`docs/agent-prompts/README.md` and `docs/skills/README.md`. The general lesson:
+before reusing an injection defence on a new input, check whether that input is
+supposed to *be* an instruction — if it is, the defence is a silent feature kill,
+not a hardening.
+
+## 2026-08-08 — never infer contract drift from *which side* of the mirror changed
+
+**Rubric:** What Doesn't Work
+**Symptom:** a freshly written check reported five critical findings on branch
+`Lab2` — "edits the client mirror without the canonical copy" for
+`client/src/vendor/shared/adapters.ts` and four `contracts/*.ts`. Meanwhile
+`./scripts/check-contracts.sh` exited 0 and `diff -r` on the two trees was
+empty. Both were telling the truth.
+**Cause:** the check inferred drift from the *diff shape* — client paths
+changed, matching server paths did not, therefore someone hand-edited the
+mirror. That inference is unsound. The branch had legitimately run
+`check-contracts.sh --fix` to sync a mirror that was **already stale on
+`main`**, so the canonical side needed no change and only the client side
+appears in `git diff origin/main`. A correct sync and a hand-edit produce an
+identical diff shape; only the end state distinguishes them.
+**Fix:** for the mirror, only the end state is checkable, and
+`./scripts/check-contracts.sh` (one `diff -r`) is the authority on it — call
+it, do not reimplement it. Generalises: before writing a check for a repo
+invariant, look for a script that already enforces it. Reimplementing gives
+you a second, worse oracle that can disagree with the first. This one cost
+5 false criticals on its first real branch, and a gate that cries wolf on run
+one never gets a run two.
+
 ## 2026-08-02 — the configured skills get skipped when repo patterns are easy to copy
 
 **Rubric:** Session Notes

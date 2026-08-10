@@ -14,6 +14,47 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-08 — jsdom 25 has no `Blob.text()` / `Blob.arrayBuffer()`
+
+**Rubric:** Tool & Library Notes
+**Symptom:** a file-upload feature written the modern way (`await file.text()`)
+works in the browser and fails only under vitest, as a component test that never
+finds the parsed result. The error surfaces as a Testing Library
+"Unable to find an element with the text …" — i.e. it reads as a broken
+assertion, or a missing `await`, not as a missing platform API. Direct probe:
+`new File(["x"], "a.md").text` is `undefined`.
+**Cause:** `Blob.prototype.text()` and `.arrayBuffer()` have been in browsers
+since 2019 but are still unimplemented in jsdom 25 (the version pinned here). The
+`File` object constructs fine, so nothing fails until the method is called, and
+the rejection is swallowed by whatever `catch` the feature has.
+**Fix:** read files through `FileReader`, which jsdom does implement — see the
+`readFile()` wrapper at the bottom of `src/lib/skill-import.ts`
+(`readAsText` / `readAsArrayBuffer`, one overloaded helper). Do NOT polyfill in
+`src/test/setup.ts`: that makes the test pass while leaving the app dependent on
+an API the test environment cannot exercise, so the *next* jsdom-only gap in the
+same code path is invisible again. Before assuming an upload test is at fault,
+probe the API directly — `expect(typeof new File([""], "x").text)` — because
+every jsdom gap in this area presents as a wrong-looking assertion.
+
+## 2026-08-08 — the app shell already owns a `complementary` landmark
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** a side panel added with a bare `<aside>` makes
+`getByRole("complementary")` throw "Found multiple elements with the role
+complementary", and the obvious workaround (`getAllByRole(...)[1]`) silently
+depends on DOM order.
+**Cause:** `AppFrame`'s sidebar (`src/vendor/ui/shell/`) is already an unnamed
+complementary landmark, so any second `<aside>` inside `AppShell` is ambiguous —
+to the test and to a screen reader, which announces two indistinguishable
+"complementary" regions.
+**Fix:** give every panel-level `<aside>` an `aria-label` from the message
+catalogue and query it by name —
+`getByRole("complementary", { name: "Skill preview" })`; the pattern is
+`src/app/skills/_components/SkillsListView/SkillsListView.tsx`. Related trap in
+the same screens: text that appears on BOTH a card and its preview (a
+description, a name) makes an unscoped `getByText` pass whether or not the panel
+opened at all — scope with `within(panel)` so the assertion tests what it claims.
+
 ## 2026-08-03 — `pnpm build` while `pnpm dev` is running bricks the dev server
 
 **Rubric:** What Doesn't Work

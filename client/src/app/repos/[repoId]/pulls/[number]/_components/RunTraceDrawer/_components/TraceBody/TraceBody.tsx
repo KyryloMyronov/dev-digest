@@ -99,6 +99,10 @@ export function TraceBody({ trace, findings }: { trace: RunTrace; findings: Find
         {trace.tool_calls.length === 0 ? (
           <span style={s.noToolCalls}>{t("trace.noToolCalls")}</span>
         ) : (
+          // Index keys are safe here: tool_calls is append-only within a single
+          // run's trace (a different run mounts a different drawer), so an
+          // existing index never changes which call it refers to. The ToolCall
+          // contract carries no unique id — `tool` repeats across calls.
           trace.tool_calls.map((tc, i) => <ToolCallRow key={i} tc={tc} />)
         )}
       </TraceSection>

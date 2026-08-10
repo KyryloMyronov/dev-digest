@@ -22,6 +22,7 @@ lesson roadmap. **Read that before designing anything; it is not repeated here.*
 ./scripts/dev.sh                 # zero → running: Postgres, .env, deps, migrate, seed, API+web
 ./scripts/dev.sh --db-only       # also: --no-seed, --no-client, --help
 ./scripts/e2e.sh                 # hermetic e2e on alternate ports (safe alongside dev)
+./scripts/check-contracts.sh     # fails if the client's shared mirror drifted (--fix to sync)
 
 cd server && pnpm dev|build|typecheck|test
 cd server && pnpm db:migrate|db:seed|db:generate
@@ -74,6 +75,9 @@ entry; supersede it with a new one instead. Full procedure and the seven rubrics
 - **`@devdigest/shared` is canonical at `server/src/vendor/shared/`.**
   `client/src/vendor/shared/` is a **hand-synced copy**. A contract change must
   land in both, or the client's types silently disagree with the wire format.
+  `./scripts/check-contracts.sh` enforces this (CI: `contracts.yml`); sync with
+  `--fix`, which always copies server → client. Both packages type-check
+  against their own copy, so nothing else catches the drift.
 - Every domain table carries `workspace_id`; all queries scope by it.
 
 ## Gotchas
@@ -90,8 +94,9 @@ entry; supersede it with a new one instead. Full procedure and the seven rubrics
   as unapproved.
 - **This is a course starter: schema and contracts exist ahead of the features
   that use them.** ~35 tables, many with no module behind them yet (`eval`,
-  `ci`, `skills`, `memory`, `plugins`, `digests`). Unused ≠ dead. Do not
-  "clean up" the schema or the contract barrel.
+  `ci`, `memory`, `plugins`, `digests`). Unused ≠ dead. Do not
+  "clean up" the schema or the contract barrel. (`skills` / `skill_versions` /
+  `agent_skills` are no longer in that list — the skills module owns them.)
 - Reset everything: `docker compose down -v`, then `./scripts/dev.sh`.
 
 ## Do-not-touch

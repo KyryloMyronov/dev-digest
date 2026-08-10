@@ -7,6 +7,7 @@ import type { AgentRow } from '../../db/rows.js';
 import type { ReviewRepository, FindingRow, PullRow, ReviewRow } from './repository.js';
 import { REVIEW_STRATEGY } from './constants.js';
 import { taskLine } from './helpers.js';
+import { skillPromptBlock, toSkillDto } from '../_shared/skills.js';
 import { loadDiff } from './diff-loader.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
@@ -17,13 +18,13 @@ export class RunCancelledError extends Error {
   }
 }
 
-/** Minimal structured logger (pino-compatible: (obj, msg)) for runtime logs. */
-export type Logger = {
-  info: (obj: unknown, msg?: string) => void;
-  warn: (obj: unknown, msg?: string) => void;
-  error: (obj: unknown, msg?: string) => void;
-  debug: (obj: unknown, msg?: string) => void;
-};
+/**
+ * Minimal structured logger (pino-compatible: (obj, msg)) for runtime logs.
+ * Canonical definition moved to `platform/logger.ts` once a second module
+ * needed it; re-exported here so existing importers keep working.
+ */
+import type { Logger } from '../../platform/logger.js';
+export type { Logger };
 
 // A reduced "Review per file" — same schema as Review (the model returns a small
 // Review per file; we merge findings + take the worst verdict / mean score).
@@ -182,6 +183,13 @@ export class ReviewRunExecutor {
       const repoMap = repoIntelOn ? await this.buildRepoMapDigest(pull.repoId, runLog) : undefined;
       const rankNote = repoIntelOn ? await this.buildRankNote(pull.repoId, diff, runLog) : '';
 
+      // Skills — the agent's linked guidance blocks, in the order set in the
+      // Skills tab. A skill contributes only when the LINK is enabled for this
+      // agent AND the skill itself is globally enabled; either switch off and
+      // its block simply isn't there, which is what makes the with/without
+      // comparison visible in the trace's prompt-assembly section.
+      const skills = await this.buildSkillBlocks(agent.id, runLog);
+
       const task = taskLine(pull) + rankNote;
 
       // ---- Engine: assemble → single-pass → grounding -----------------------
@@ -196,6 +204,10 @@ export class ReviewRunExecutor {
         // Per-agent review strategy (configured in the Agent editor); falls back
         // to the studio default. single-pass = whole diff in one call.
         strategy: agent.strategy ?? REVIEW_STRATEGY,
+        // Linked, enabled skills. Omitted when empty so an agent with no skills
+        // produces byte-identical prompt to the pre-skills baseline — that
+        // equality is what the control experiment measures against.
+        ...(skills.length > 0 ? { skills } : {}),
         // T1.3 — pass the callers digest only when we built one. assemblePrompt
         // omits the section when this is empty/undefined.
         ...(callersDigest ? { callers: callersDigest } : {}),
@@ -315,6 +327,41 @@ export class ReviewRunExecutor {
       this.container.runBus.complete(runId);
       throw err;
     }
+  }
+
+  /**
+   * Resolve the agent's linked skills into ordered prompt blocks.
+   *
+   * Two independent switches gate a skill, and BOTH must be on: the per-agent
+   * `agent_skills.enabled` (the checkbox in the Skills tab) and the skill's own
+   * global `skills.enabled`. A skipped skill is logged by name so the Live Log
+   * says *why* a block the user expected is missing — silently dropping it is
+   * indistinguishable from the feature being broken.
+   *
+   * Never throws: a skills lookup failing must degrade to an unskilled review,
+   * not fail the run.
+   */
+  private async buildSkillBlocks(agentId: string, runLog: RunLogger): Promise<string[]> {
+    let links;
+    try {
+      links = await this.agents.linkedSkills(agentId);
+    } catch (err) {
+      runLog.info(`skills: lookup failed, running without them — ${(err as Error).message}`);
+      return [];
+    }
+    if (links.length === 0) return [];
+
+    const active = links.filter((l) => l.enabled && l.skill.enabled);
+    const skipped = links.filter((l) => !(l.enabled && l.skill.enabled));
+    if (skipped.length > 0) {
+      runLog.info(`Skills disabled, not in prompt: ${skipped.map((l) => l.skill.name).join(', ')}`);
+    }
+    if (active.length === 0) return [];
+
+    runLog.info(
+      `Skills attached (${active.length}): ${active.map((l) => l.skill.name).join(', ')}`,
+    );
+    return active.map((l) => skillPromptBlock(toSkillDto(l.skill)));
   }
 
   /**

@@ -6,22 +6,31 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 
 | Skill | Scope | Description |
 |-------|-------|-------------|
+| [onion-architecture](onion-architecture/SKILL.md) | Backend | Backend architecture & dependency direction: rings, ports/adapters, services, repositories, composition root. Enforced by `pnpm lint:arch` |
 | [fastify-best-practices](fastify-best-practices/SKILL.md) | Backend | Fastify routes, plugins, JSON-schema validation, error handling |
 | [drizzle-orm-patterns](drizzle-orm-patterns/SKILL.md) | Backend | Drizzle schema, queries, relations, transactions, migrations |
 | [postgresql-table-design](postgresql-table-design/SKILL.md) | Backend | Postgres schema design, data types, indexing, constraints |
 | [next-best-practices](next-best-practices/SKILL.md) | Frontend | Next.js App Router, RSC boundaries, data fetching, optimization |
 | [react-best-practices](react-best-practices/SKILL.md) | Frontend | React anti-patterns, state management, hooks rules |
+| [frontend-ui-architecture](frontend-ui-architecture/SKILL.md) | Frontend | UI architecture & code organization: feature boundaries, logic/state placement, RSC/DAL architecture |
 | [react-testing-library](react-testing-library/SKILL.md) | Frontend | General-purpose React Testing Library guide with Vitest |
 | [zod](zod/SKILL.md) | Full-stack | Zod schema validation, parsing, error handling, type inference |
 | [typescript-expert](typescript-expert/SKILL.md) | Full-stack | Type-level programming, performance, tooling, migrations |
 | [security](security/SKILL.md) | Full-stack | OWASP Top 10:2025, auth, injection, uploads, secrets |
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
 | [engineering-insights](engineering-insights/SKILL.md) | Shared | Recall and capture durable insights in each package's `insights.md` |
+| [pr-self-review](pr-self-review/SKILL.md) | Shared | Self-review all open changes before opening a PR: routes the diff to the skills above, runs this repo's invariants, reports a verdict |
 
-All skills above except `engineering-insights` are vendored from upstream and
-hash-locked by [`skills-lock.json`](../../skills-lock.json); local edits to them
-get overwritten on sync. `engineering-insights` is authored here and is not
-locked.
+`engineering-insights`, `frontend-ui-architecture`, `onion-architecture` and
+`pr-self-review` are authored here and are yours to edit. Skills listed in
+[`skills-lock.json`](../../skills-lock.json) are vendored from upstream and
+hash-locked; local edits to those get overwritten on sync. Note the lock and
+this directory do not currently agree in both directions — `skills-lock.json`
+is the one the sync tool reads, so treat it as the answer.
+
+`onion-architecture` is the only skill with an executable half: its rules are
+enforced by [`server/.dependency-cruiser.cjs`](../../server/.dependency-cruiser.cjs)
+via `cd server && pnpm lint:arch`. Change the skill and the config together.
 
 ## What Are Skills?
 
