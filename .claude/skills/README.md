@@ -17,11 +17,32 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [security](security/SKILL.md) | Full-stack | OWASP Top 10:2025, auth, injection, uploads, secrets |
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
 | [engineering-insights](engineering-insights/SKILL.md) | Shared | Recall and capture durable insights in each package's `insights.md` |
+| [api-breaking-changes](api-breaking-changes/SKILL.md) | Full-stack | Detect wire-format breaks in a change — removed/renamed endpoints, weakened contracts, orphaned studio calls |
+| [api-response-changes](api-response-changes/SKILL.md) | Full-stack | Detect response-payload breaks — fields removed or flipped optional/nullable, swapped response types, `.partial()` on a served contract |
+| [response-schema](response-schema/SKILL.md) | Full-stack | Diff response payloads from the *consumer's* side — the studio's `api.get<T>()` generic as the declaration, with nested field paths and served/unserved severity |
 
-All skills above except `engineering-insights` are vendored from upstream and
+All skills above except `engineering-insights`, `api-breaking-changes`,
+`api-response-changes` and `response-schema` are vendored from upstream and
 hash-locked by [`skills-lock.json`](../../skills-lock.json); local edits to them
-get overwritten on sync. `engineering-insights` is authored here and is not
-locked.
+get overwritten on sync. Those four are authored here and are not locked.
+
+### The three API skills
+
+All three are worth running before a PR; they ask different questions.
+
+| Skill | Question | Anchors on |
+|---|---|---|
+| `api-breaking-changes` | can a *caller* still reach the API? | endpoints, the module registry, request validation |
+| `api-response-changes` | is the *server* sending a different payload? | the server side, in descending strength: route `response:` → handler annotation → service `Promise<…>` → inline literal (all 53 endpoints) |
+| `response-schema` | does the payload still match what *consumers are typed against*? | the studio's `api.get<T>()` generic (47 bindings), plus route `response:` when one exists |
+
+The last two overlap heavily and deliberately disagree about where the truth
+lives. `api-response-changes` trusts the server and will catch a service return
+type that drifts with no contract change. `response-schema` trusts the client
+generic and will catch a payload that no longer matches the type consumers
+compile against — including the case where the *generic itself* was always
+wrong. Neither subsumes the other; run both before a PR that touches
+`vendor/shared/`, and expect duplicate findings where they agree.
 
 ## What Are Skills?
 

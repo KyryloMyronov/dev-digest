@@ -14,6 +14,205 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-12 — a response type is declared in one of four places, and 9 endpoints declare none
+
+**Rubric:** Codebase Patterns
+**Symptom:** looking for "the" response shape of an endpoint finds nothing at the
+route, and following only the service return type still leaves a third of the
+API unaccounted for. Worse, `GET /pulls/:id` *looks* like it returns an object
+literal — the handler builds the payload inline with spreads — so a scan that
+trusts the literal reports a partial shape that is confidently wrong.
+**Cause:** refines point 2 of *2026-08-11 — the API surface is not readable from
+`modules/*/routes.ts` alone*, which says the response wire format "lives in the
+contracts, and nowhere else". It lives in four places, in descending strength:
+1. **`schema: { response: … }` on the route** — **0 of 53 endpoints** use this,
+   despite `server/CLAUDE.md` asking for it ("One Zod schema serves request
+   validation AND response serialization. Declare it on the route"). The
+   convention has zero adoption for responses; treat it as aspirational.
+2. **The handler's own annotation** — `async (req): Promise<PrDetail> =>`
+   (7 endpoints, all in `modules/pulls/routes.ts`). This is the only thing that
+   correctly types the handlers that query the DB inline; without it they read as
+   object literals.
+3. **The service method's `Promise<…>`** (28 endpoints) — the common case, e.g.
+   `AgentsService.list(): Promise<Agent[]>`.
+4. **An inline object type or literal** (9 endpoints) — `Promise<{ status:
+   'refreshing' }>` (`ReposService.refresh`) or a bare `{ ok: true }`. These are
+   in no contract at all, so a contract-level scan cannot see them.
+
+The remaining **9 endpoints have no declared response type anywhere** —
+`GET /settings`, `PUT /settings`, `GET /health`, `GET /pulls/:id/runs`,
+`DELETE /runs/:id` among them — because the handler queries `container.db`
+directly and nothing annotates the result.
+**Fix:** to read a response shape, use the resolver that already walks all four:
+`node .claude/skills/api-response-changes/response-surface.mjs [ref] --summary`
+prints one line per endpoint with its `via`, and `check.mjs` diffs two refs for
+breaks a *reader* feels (field removed, flipped optional/nullable, `.partial()`
+on a served contract). When adding or changing an endpoint, annotate the handler
+return type — one line, no runtime cost, and it is what makes the response
+checkable. A change to a service method's return type is a wire-format change
+even when `routes.ts` has an empty diff.
+
+## 2026-08-11 — the API surface is not readable from `modules/*/routes.ts` alone
+
+**Rubric:** Codebase Patterns
+**Symptom:** an endpoint inventory built by grepping `app.<verb>(` across
+`src/modules/*/routes.ts` is wrong in three directions at once: it lists routes
+nothing serves, it contains no response shapes at all, and a change that takes
+11 endpoints offline shows up as an **empty diff on every route file**.
+**Cause:** the surface is spread across three places.
+1. **The registry is part of it.** `src/modules/index.ts` registers modules
+   statically (deliberately not `@fastify/autoload`). Delete one key from the
+   `modules` object and every route in that folder stops being served while the
+   route file, its tests, and its `git diff` all stay clean.
+2. **No route declares a `response:` schema.** All 45 `schema: {` blocks under
+   `src/modules/*/routes.ts` carry only `body` / `params` / `querystring`;
+   responses are typed by the service return type (`Promise<SecretsStatus>`) and
+   shaped by the exported Zod schemas in `src/vendor/shared/`. So the response
+   wire format lives in the contracts, and nowhere else.
+3. **One route path is built in a loop.** `` app.post(`/findings/:id/${action}`) ``
+   (`modules/reviews/routes.ts:144`) is one registration per iteration; any
+   text-level scan sees a single templated path, not `accept` and `dismiss`.
+**Fix:** read all three, or use the extractor that already does —
+`node .claude/skills/api-breaking-changes/surface.mjs [ref]` dumps endpoints
+(with a `registered` flag), the registry, the resolved contract shapes and the
+studio's call sites as JSON, for any git ref without a checkout.
+`check.mjs` diffs two refs and classifies what breaks a caller. When adding a
+module, the registry entry is not boilerplate — it is the thing that makes the
+endpoints exist.
+
+## 2026-08-11 — `waitForPrRuns` is not enough before reading `/runs/:id/trace`
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** an integration test that asserts on a persisted trace passes when
+run alone and fails **only under the full suite**, with an assertion that reads
+as a product bug rather than a race — `prompt_assembly.skills` comes back
+`null`/`undefined`, so you get
+`TypeError: Cannot read properties of null (reading 'indexOf')` or
+`the given combination of arguments (null and string) is invalid for this
+assertion`. Re-running the file alone is green, which makes it look like
+cross-test pollution.
+**Cause:** `waitForPrRuns` (`test/helpers/runs.ts`) polls `agent_runs.status`
+until it is terminal, but the executor marks the run terminal *first* and only
+then persists the review, the findings and — last — the trace
+(`completeAgentRun` at `run-executor.ts:256`, `saveRunTrace` at `:301`). A test
+that polls on run status can therefore read the trace inside that ~45-line
+window and get a 404. Under 31 parallel Testcontainers suites the window widens
+enough to lose the race. Note also that `waitForPrRuns` **returns** on timeout
+rather than throwing, so a genuinely unfinished run degrades into the same
+confusing assertion instead of a clear timeout.
+**Fix:** `await waitForTrace(db, runId)` from the same helper module after
+`waitForPrRuns` and before any `GET /runs/:id/trace`. Do not "fix" this by
+reordering the writes in `run-executor` — the run's terminal status is what SSE
+and the timeline depend on, and the trace is observability that legitimately
+lands after it. `test/reviews.it.test.ts:201` reads a trace the same way and has
+the same latent race; it has not been seen failing, and the one-line fix is the
+same call.
+
+## 2026-08-11 — a `server/specs/*.md` marked "Status: shipped" can still be ahead of the code
+
+**Rubric:** Codebase Patterns
+**Symptom:** `server/specs/skills.md` documents the skills feature as
+**shipped**, in past tense, with line-precise pointers — `buildSkillBlocks` in
+`run-executor.ts:344`, the `skills` spread at `:210` — and an acceptance list
+almost entirely ticked. None of it was true: `grep -n skills
+src/modules/reviews/run-executor.ts` returned a single hit, `prompt_assembly:
+{ skills: null }`. The client, its 131 tests and both typechecks were all green,
+because the client suites stub `fetch` and nothing type-links a hook's URL string
+to a route that exists.
+**Cause:** this repo is a course starter, so a spec is written as the design of a
+lesson and is not re-verified against the tree afterwards; and the halves of a
+feature land in different packages at different times. The tests were the only
+artefact that told the truth — `skills.it.test.ts` and `skills-prompt.it.test.ts`
+were present and failing 10 assertions, but they are `*.it.test.ts`, so they are
+silently skipped without Docker (`dockerAvailable()` gates the whole `describe`).
+A green `pnpm test` therefore proves much less than it appears to.
+**Fix:** before implementing anything a spec claims is done, verify the claim
+against the code, not the prose — `grep` for the named symbol, and run the
+integration suites with Docker actually reachable (under Colima that needs the
+two `DOCKER_HOST` variables; see the 2026-08-02 entry below). Existing failing
+`*.it.test.ts` files are the most reliable specification of what is missing, and
+they are the acceptance criteria — read them before designing. The root
+`CLAUDE.md` rule "if an entry contradicts the code as it stands now, the code
+wins" applies to `specs/` exactly as it does to `insights.md`.
+
+## 2026-08-11 — a failed conventions scan reports nothing useful anywhere except its own DB row
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** the Conventions screen says only *"The last scan failed. Re-scan to
+try again."* The `jobs` row for the scan is **`done`**, not failed, and the API
+log shows no error — so both places you would normally look say everything is
+fine, and the advice the UI gives ("re-scan") is exactly wrong for a
+deterministic failure.
+**Cause:** by design. `runConventionScan`
+(`src/modules/conventions/pipeline.ts`) **never throws** — `JobRunner` retries a
+rejected handler twice, which for a missing key or a broken model config would
+mean three full scans and three bills for one broken setting. So every failure is
+swallowed and persisted instead, and the job legitimately succeeded at running
+it. The only record of *why* is `convention_scan_state.error` (truncated to 500
+chars, because a provider can return a page of HTML as its message).
+**Fix:** read the row — this is the first move for any conventions-scan
+complaint, before reading code:
+
+```sh
+docker exec devdigest-postgres psql -U devdigest -d devdigest -x -c \
+  "select s.status, s.reason, s.provider, s.model, s.sample_files, s.selected_files, s.error \
+   from convention_scan_state s join repos r on r.id = s.repo_id where r.full_name like '%NAME%';"
+```
+
+Read `reason` and `error` together: `reason` is set only on the classified exits
+(`not_indexed`, `no_clone`, `llm_unavailable`, `model_unsupported`,
+`no_candidates`), so **`reason` NULL with `error` populated means the generic
+catch at the bottom of the pipeline** — and that path passes neither `provider`
+nor `model` nor `sampleFiles` to `finish()`, so those columns read as empty/0 even
+when sampling actually succeeded. Do not conclude from `sample_files = 0` that
+sampling failed; check `started_at`→`finished_at` instead (a sub-2s failure is a
+rejected API call, ~60s is a real scan). Widening that catch to carry the
+provider/model is still unclaimed work.
+
+## 2026-08-11 — `db:generate` diffs against the highest-numbered SNAPSHOT, ignoring the journal
+
+**Rubric:** Tool & Library Notes
+**Symptom:** an unrelated `ALTER TABLE "agent_skills" DROP COLUMN "enabled";`
+appeared inside a freshly generated migration that was supposed to contain only
+new `conventions` DDL. The dropped column was one nothing in `src/db/schema/`
+declared — and one no database had ever had.
+**Cause:** two independent facts. (1) drizzle-kit picks the *previous* state with
+`readdirSync(meta).filter(f => !f.startsWith('_')).sort()` and takes the **last**
+entry — `meta/_journal.json` is not consulted for that. (2) It takes the new
+migration's index from `journal.entries[last].idx + 1`. So an orphaned
+`meta/00NN_snapshot.json` whose tag is absent from the journal still defines the
+baseline: the diff is computed against a schema state that was never applied, and
+the new snapshot then *overwrites* the orphan, hiding the problem further. Here
+`0011_cultured_the_fallen.sql` + `meta/0011_snapshot.json` existed on disk,
+untracked and unjournaled, from an earlier unfinished session.
+**Fix:** before `pnpm db:generate`, check the two lists agree —
+`ls src/db/migrations/meta/*_snapshot.json` against
+`grep -o '"tag": "[^"]*"' src/db/migrations/meta/_journal.json`. A snapshot with
+no journal entry has never been applied anywhere (`db/migrate.ts` is
+journal-driven), so delete that SQL/snapshot **pair** and re-declare whatever it
+intended in `src/db/schema/` so it regenerates honestly. Also verify the target
+DB matches the journal — someone may have applied the orphan SQL by hand, in
+which case `db:migrate` fails with `column "x" already exists` and the column has
+to be dropped before the real migration can run.
+
+## 2026-08-11 — `db:generate` prompts interactively when a table both gains and loses a column
+
+**Rubric:** Tool & Library Notes
+**Symptom:** `pnpm db:generate` hangs forever at
+`Is source_rule column in conventions table created or renamed from another
+column?` with a `❯ + create column / ~ accepted › source_rule rename column`
+picker. Piping newlines does nothing; `script -q /dev/null` to fake a PTY also
+hung and had to be killed.
+**Cause:** drizzle-kit cannot tell an add+drop from a rename, so it asks. The
+prompt is a raw-keypress TUI — it reads the terminal directly, not stdin, so it
+is unanswerable from a non-interactive shell.
+**Fix:** remove the ambiguity instead of trying to answer it. Split into two
+generates: keep the doomed column in the schema, generate (pure additions → no
+prompt), then delete the column and generate again (pure drop → no prompt). Two
+migrations, fully deterministic; this is how `0011_red_dagger` +
+`0012_misty_tattoo` were produced. Always read the generated SQL before
+migrating — a silent `RENAME` where you wanted a drop is data loss.
+
 ## 2026-08-02 — run cost is persisted but the write path has no test
 
 **Rubric:** Open Questions

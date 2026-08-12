@@ -18,6 +18,118 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-12 — angle-bracket slicing is safe only when anchored at a verified generic
+
+**Rubric:** What Works
+**Supersedes:** 2026-08-12 — `sliceBalanced` in the skills' source scanner does not pair angle brackets
+**Symptom:** none yet — latent. That entry's "adding `<`/`>` to `PAIRS` is not
+the fix" reads as absolute, and `.claude/skills/response-schema/lib.mjs` does
+exactly that. A reader reconciling the two could remove working code, or copy
+the `PAIRS` change into a general-purpose scanner and hit the original bug.
+**Cause:** the hazard is the *call site*, not the pairing table. `<` is
+ambiguous only where it might be a comparison, JSX, or an arrow — that is,
+where you scan arbitrary source. `extractCallerBindings` in
+`.claude/skills/response-schema/responses.mjs` never scans arbitrary source: it
+matches `/\bapi\s*\.\s*(get|post|…)\s*(?=<)/` and slices from the `<` that the
+lookahead already proved opens a generic. Inside a type there is no comparison
+operator and no JSX, so the only residual hazard is `=>`, which that
+`sliceBalanced` steps over explicitly.
+**Fix:** keep the original entry's rule as the default — do not reach for
+`sliceBalanced` to pull a generic out of a service signature; `parseTypeExpr`'s
+greedy match to the final `>` is right there. The one sanctioned exception is a
+slice anchored at a position a lookahead has already proved is a generic open,
+with `=>` skipped. Verified against nested generics (`Map<string, Set<number>>`),
+an arrow inside a type literal (`Array<{ cb: (x: number) => boolean }>`), and a
+bare `a < 5 && b > 3` (never matched); all 47 bindings extract correctly. If you
+change that regex so it no longer proves the `<`, the exception is void — check
+with `node .claude/skills/response-schema/responses.mjs | grep -c '"typeText"'`,
+which must stay at 47.
+
+## 2026-08-12 — `sliceBalanced` in the skills' source scanner does not pair angle brackets
+
+**Rubric:** What Doesn't Work
+**Symptom:** parsing `Promise<Agent[]>` out of a service signature yielded the
+name `null` instead of `Agent`, with no error. Every endpoint in a new
+`api-response-changes` surface resolved to an empty contract column while
+`via: 'service-return'` still claimed success — a silent wrong answer, not a
+crash.
+**Cause:** `sliceBalanced` in `.claude/skills/api-breaking-changes/surface.mjs`
+pairs brackets from `PAIRS = { '(':')', '{':'}', '[':']' }` only. Given `<` it
+increments depth on the open character, never finds a close character (`PAIRS['<']`
+is `undefined`), falls through to its truncation fallback, and returns *everything
+after* the `<` — `Agent[]>`, trailing `>` included. The caller then tests
+`/^(.*)\[\]$/`, which does not match because of that `>`, so the array unwrap and
+the name extraction both fail quietly.
+**Fix:** never use `sliceBalanced` on a TypeScript generic. For a fully-wrapped
+generic, match greedily to the final `>` instead —
+`new RegExp('^' + wrapper + '\\s*<([\\s\\S]*)>$')` — which is what
+`parseTypeExpr` in `.claude/skills/api-response-changes/response-surface.mjs`
+does. When a *nesting-aware* angle scan is genuinely needed (reading a return
+annotation up to `=>`), count `<([{` / `>)]}` by hand and treat `=>` as the
+terminator, as `readHandlerReturnType` in that file does. Adding `<`/`>` to
+`PAIRS` is not the fix: `<` is ambiguous in TS/JS source (comparison, JSX, arrow
+`=>`), and every existing caller scans `()`/`{}`/`[]` where the pairing is
+unambiguous.
+
+## 2026-08-11 — an OpenRouter `:free` model can drop `structured_outputs` while keeping `response_format`
+
+**Rubric:** Tool & Library Notes
+**Symptom:** the conventions scan failed with `429 Provider returned error` after
+the workspace model was set to `google/gemma-4-31b-it:free`. The model id is
+valid, the key works, and the paid `google/gemma-4-31b-it` is fine — so the 429
+reads as a transient rate limit worth retrying. It is not the real problem.
+**Cause:** two distinct facts wearing one error. (1) `429 Provider returned error`
+is the *upstream* provider behind OpenRouter's free pool; OpenRouter's own quota
+message reads `Rate limit exceeded: free-models-per-day`, so the wording tells you
+which one you hit. (2) Behind it, `google/gemma-4-31b-it:free` advertises
+`response_format` but **not** `structured_outputs` in its `supported_parameters`,
+while the paid variant of the same model advertises both. Everything in this repo
+that calls `completeStructured` sends
+`response_format: {type:'json_schema', strict: true}`
+(`reviewer-core/src/llm/openrouter.ts`), so that endpoint could never have
+satisfied the scan — clearing the 429 would only have moved the failure.
+**Fix:** check the capability before blaming the rate limit —
+
+```sh
+curl -s https://openrouter.ai/api/v1/models | python3 -c "
+import json,sys
+for m in json.load(sys.stdin)['data']:
+    if 'gemma-4' in m['id']:
+        print(m['id'], 'structured_outputs' in (m.get('supported_parameters') or []))"
+```
+
+`ModelCatalog.supportsStructuredOutputs` (`server/src/platform/model-catalog.ts`,
+formerly `PriceBook` — it caches `/models` for prices *and* capabilities) now
+answers this, and the conventions scan preflights on it and fails with
+`reason: 'model_unsupported'` before spending a call. It returns **`boolean | null`**
+and `null` means "the catalogue does not know" — callers must treat that as
+*proceed*, never as a denial, or an unreachable `/models` blocks every scan. Free
+models that DO work here: `google/gemma-4-26b-a4b-it:free`. When picking any new
+free model for a structured-output feature, verify the flag first; `:free` is not
+the same endpoint as its paid twin.
+
+## 2026-08-11 — `check-contracts.sh --fix` also lands drift you did not create
+
+**Rubric:** Codebase Patterns
+**Symptom:** a one-file contract change (`contracts/knowledge.ts`) synced with
+`./scripts/check-contracts.sh --fix` produced **five** modified files under
+`client/src/vendor/shared/` — `adapters.ts`, `contracts/eval-ci.ts`,
+`contracts/productionize.ts` and `contracts/trace.ts` had nothing to do with the
+change.
+**Cause:** the two trees were **already** out of sync before the change, and the
+guard is one-directional by design (`rsync -a --delete`, server always wins). So
+`--fix` does not sync your edit — it makes the whole mirror match canonical, which
+includes every earlier unmirrored change. `git diff` on `main` had never been run
+against `diff -r server/src/vendor/shared client/src/vendor/shared`, so nobody
+knew. Both `tsc` runs pass either way, which is exactly the failure mode the guard
+exists to surface.
+**Fix:** run `diff -rq server/src/vendor/shared client/src/vendor/shared`
+**before** touching a contract, so you know which files were already drifted and
+can say so. Do not revert the extra files — they are the mirror catching up, and
+reverting re-breaks it. Call them out separately in the PR description, and
+re-typecheck the client afterwards: a client that stops compiling after a sync is
+the real bug the guard found, not a sync problem.
+
 ## 2026-08-02 — the configured skills get skipped when repo patterns are easy to copy
 
 **Rubric:** Session Notes

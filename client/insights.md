@@ -14,6 +14,114 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-11 — two shipped hooks call endpoints the API has never served
+
+**Rubric:** Open Questions
+**Symptom:** none yet — latent. `useContextFiles` and `useReindexContext`
+(`src/lib/hooks/core.ts:123-138`) call `GET /repos/:id/context` and
+`POST /repos/:id/context/reindex`. No route serves either, on this branch or on
+`main` — `repo-intel` registers only `/repos/:id/index-state` and
+`/repos/:id/resync`. The comment above them says so ("safe to call once API
+exposes it"), which is easy to miss when copying the neighbouring hook.
+**Cause:** `api.get<T>(path)` takes a **plain string**, so nothing type-checks a
+path against the routes that exist. A hook aimed at a nonexistent endpoint
+compiles, passes `pnpm typecheck`, passes its own test against a mocked fetch,
+renders, and only fails as a 404 `ApiError` toast in front of a user. This is
+the same shape as the starter's deliberate schema-ahead-of-features policy
+(root `CLAUDE.md`), just on the client side.
+**Fix:** before wiring a hook into a screen, confirm a route actually serves it —
+`node .claude/skills/api-breaking-changes/check.mjs` lists every studio call
+site with nothing behind it under `consumer-without-endpoint` (pre-existing ones
+as `info`, ones your change orphaned as `critical`). Leave the "safe to call
+once…" comment on any hook written ahead of its endpoint; it is the only marker
+that distinguishes intent from a typo in the path.
+
+## 2026-08-11 — importing a VALUE from `@devdigest/shared` breaks the browser only; `typecheck` and `vitest` both pass
+
+**Rubric:** What Doesn't Work
+**Symptom:** a new route died in the dev server with
+`Module not found: Can't resolve './contracts/findings.js'`, while
+`pnpm typecheck` was clean and all 129 tests passed. The named file exists, in
+both `vendor/shared` trees — so the first instinct (that
+`check-contracts.sh --fix`'s `rsync --delete` had removed it) was wrong and cost
+the time.
+**Cause:** the offending line was `import { SkillType } from "@devdigest/shared"`
+— `SkillType` is a Zod schema, so this is a **runtime** import. Every other
+import from that package in the whole client is `import type`, which `tsc`
+erases, so the bundler had never once been asked to resolve the contract barrel.
+When it finally was, `vendor/shared/index.ts` re-exports with ESM specifiers
+(`export * from './contracts/findings.js'`); `tsc` maps `.js` → `.ts` under its
+moduleResolution and webpack does not. Vitest passes too — it resolves through
+the same alias config as `tsc`. So both gates are structurally blind to this.
+**Fix:** in `client/`, treat `@devdigest/shared` as **types only**. Need an
+enum's members at runtime? Declare a local literal array annotated with the
+contract type (`export const SKILL_TYPE_OPTIONS: SkillType[] = [...]`) — the
+pattern `app/skills/.../SkillsListView/constants.ts#TYPE_OPTIONS` already uses.
+Audit with
+`grep -rn 'from "@devdigest/shared"' src | grep -v 'import type'` — it should
+return only the closing braces of multiline `import type {` blocks. And note the
+process lesson: for a *new route*, a green typecheck and a green suite do not
+mean it loads. Fetch it once (`curl -s -o /dev/null -w '%{http_code}'
+localhost:3000/<route>` and grep the body for `Can't resolve`) before calling it
+done.
+
+## 2026-08-11 — wrapping a test in `RepoProvider` makes the shell fetch more, and one non-array stub blanks the whole render
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** a component test that passed against 13 assertions started failing
+*every* assertion after `RepoProvider` was added to its render wrapper. The DOM
+printed by Testing Library was `<body><div /></body>` — nothing rendered at all —
+and the real cause was buried far below the diff as
+`Unhandled Errors › TypeError: pulls?.filter is not a function`.
+**Cause:** with no `RepoProvider`, `useActiveRepo()` returns the context default
+(`activeRepo: null`), so the shell fetches nothing extra. Once the provider
+resolves a repo from the path, `useShellContext` fetches that repo's PRs for the
+sidebar badge and calls `pulls?.filter(...)` (`useShellContext.ts:75`). A `fetch`
+stub whose catch-all returns an object (`{ ok: true }`) satisfies `?.` and then
+throws on `.filter` — inside a `useMemo` during render, which unmounts the tree.
+**Fix:** any stub that a shell hook will read must return the right *shape*, not
+just a 200. Route `/pulls` (and `/repos`) explicitly to `[]`/`[REPO]` **before**
+the catch-all. More generally: when a whole suite goes red with an empty `<body>`,
+scroll past the assertion diff to the `Unhandled Errors` section — the render
+threw, and the failing assertion is a symptom, not the bug.
+
+## 2026-08-11 — a component that calls a missing message key fails its own test
+
+**Rubric:** Codebase Patterns
+**Symptom:** installing `@testing-library/user-event` (to fix a typecheck error)
+made `SkillsListView.test.tsx` and `SkillsTab.test.tsx` run for the first time —
+and 9 of their tests failed with `Unable to find an element with the text:
+Create from scratch` / `Move corner-cases up`. The components were correct; the
+DOM contained raw key names like `aria-label="agents.skills.detach"`.
+**Cause:** the RTL suites here import the **real** catalogues from disk
+(`import skillMessages from "../../../messages/en/skills.json"`) and assert on
+rendered English, so catalogue completeness is load-bearing test data, not
+cosmetics. `messages/en/skills.json` and the `skills.*` block of `agents.json`
+were prototype-era — they carried `drawer.*`/`community.*`/`url.*` keys for a UI
+that no longer exists and were missing ~60 keys the shipped components call
+(`editor.*`, `import.*`, `card.*`, `delete.*`, `preview.panelLabel`, …). next-intl
+renders the key itself rather than throwing, so nothing failed until a test looked.
+**Fix:** after adding a component, diff the keys it calls against the catalogue —
+`grep -rhoE 't\("([a-zA-Z0-9_.]+)"' <dir>` plus a pass for template literals
+(`t(\`listItem.type.${x}\`)`), then compare against the flattened JSON. Do not
+assume a catalogue that exists is a catalogue that matches; several under
+`messages/en/` describe screens from the original snapshot, not today's code.
+
+## 2026-08-11 — the icon registry exposes `Pencil` only as `Edit`
+
+**Rubric:** Tool & Library Notes
+**Symptom:** `icon="Pencil"` fails typecheck with
+`Type '"Pencil"' is not assignable to type '"GitPullRequest" | … | 63 more …'`,
+even though `grep Pencil src/vendor/ui/icons.tsx` finds it twice.
+**Cause:** `IconName` is `keyof typeof Icon`, and the registry deliberately
+re-keys that import — `Edit: Pencil` (`icons.tsx:147`, commented "prototype used
+'Edit'"). So the lucide export is imported under one name and published under
+another; the grep hit is the import, not the key.
+**Fix:** resolve icon names against the `Icon` object's **keys**, not the import
+list: `grep -n "^export const Icon" -A 80 src/vendor/ui/icons.tsx`. Use `"Edit"`
+for a pencil. `Eye` is a real key, so `icon={editing ? "Eye" : "Edit"}` is the
+working preview/edit toggle pair.
+
 ## 2026-08-03 — `pnpm build` while `pnpm dev` is running bricks the dev server
 
 **Rubric:** What Doesn't Work
