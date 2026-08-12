@@ -6,6 +6,8 @@ import type {
   CodeIndex,
   Embedder,
   LLMProvider,
+  FeatureModelChoice,
+  FeatureModelId,
 } from '@devdigest/shared';
 import type { AppConfig } from './config.js';
 import type { Db } from '../db/client.js';
@@ -21,10 +23,12 @@ import { AnthropicProvider } from '../adapters/llm/anthropic.js';
 import { OpenAIEmbedder } from '../adapters/embedder/openai.js';
 import { OpenRouterProvider } from '@devdigest/reviewer-core';
 import { estimateCost } from '../adapters/llm/pricing.js';
-import { PriceBook } from './price-book.js';
+import { ModelCatalog } from './model-catalog.js';
 import { ConfigError } from './errors.js';
 import { AgentsRepository } from '../modules/agents/repository.js';
 import { ReviewRepository } from '../modules/reviews/repository.js';
+import { PullsRepository } from '../modules/pulls/repository.js';
+import { resolveFeatureModel } from '../modules/settings/feature-models.js';
 import type { RepoIntel } from '../modules/repo-intel/types.js';
 import { RepoIntelService } from '../modules/repo-intel/service.js';
 import { type DepGraph, DepCruiseGraph } from '../adapters/depgraph/index.js';
@@ -72,10 +76,11 @@ export class Container {
   // `container.agentsRepo` instead of reaching into another module's folder.
   private _agentsRepo?: AgentsRepository;
   private _reviewRepo?: ReviewRepository;
+  private _pullsRepo?: PullsRepository;
   private _repoIntel?: RepoIntel;
   private _depgraph?: DepGraph;
   private _tokenizer?: Tokenizer;
-  private _priceBook?: PriceBook;
+  private _modelCatalog?: ModelCatalog;
 
   constructor(config: AppConfig, db: Db, private overrides: ContainerOverrides = {}) {
     this.config = config;
@@ -98,6 +103,25 @@ export class Container {
 
   get reviewRepo(): ReviewRepository {
     return (this._reviewRepo ??= new ReviewRepository(this.db));
+  }
+
+  /**
+   * `pull_requests` has exactly one repository, and polling writes to it too.
+   * Shared here rather than duplicated so the two write paths cannot drift.
+   */
+  get pullsRepo(): PullsRepository {
+    return (this._pullsRepo ??= new PullsRepository(this.db));
+  }
+
+  /**
+   * The workspace's provider+model for a system LLM feature (onboarding,
+   * conventions, …): its Settings override, else the `FEATURE_MODELS` default.
+   *
+   * Exposed here because the resolver reads `settings` — a module's own data —
+   * and the composition root is the only place allowed to cross that boundary.
+   */
+  async featureModel(workspaceId: string, id: FeatureModelId): Promise<FeatureModelChoice> {
+    return resolveFeatureModel(this, workspaceId, id);
   }
 
   get codeIndex(): CodeIndex {
@@ -132,13 +156,14 @@ export class Container {
   }
 
   /**
-   * Live OpenRouter pricing for cost attribution. The lister builds a bare
+   * The live OpenRouter model catalogue — prices for cost attribution, and
+   * capabilities for the conventions preflight. The lister builds a bare
    * OpenRouter provider just for `/models` (no estimator needed) and degrades to
    * `[]` when no key is configured; the static `estimateCost` table is the
    * fallback for OpenAI/Anthropic and a cold/cold-failed cache.
    */
-  get priceBook(): PriceBook {
-    this._priceBook ??= new PriceBook(async () => {
+  get modelCatalog(): ModelCatalog {
+    this._modelCatalog ??= new ModelCatalog(async () => {
       try {
         const key = await this.secrets.get('OPENROUTER_API_KEY');
         if (!key) return [];
@@ -147,7 +172,7 @@ export class Container {
         return [];
       }
     }, estimateCost);
-    return this._priceBook;
+    return this._modelCatalog;
   }
 
   async github(): Promise<GitHubClient> {
@@ -178,13 +203,13 @@ export class Container {
     }
     if (id === 'openrouter') {
       // Single OpenRouter provider lives in reviewer-core (shared with the CI
-      // runner); inject the PriceBook so cost attribution uses LIVE OpenRouter
+      // runner); inject the ModelCatalog so cost attribution uses LIVE OpenRouter
       // prices (with the static table as a fallback) rather than a hardcoded one.
       const key = await this.secrets.get('OPENROUTER_API_KEY');
       if (!key) throw new ConfigError('OPENROUTER_API_KEY is not configured');
       return new OpenRouterProvider(key, {
         estimateCost: (model, tokensIn, tokensOut) =>
-          this.priceBook.estimate(model, tokensIn, tokensOut),
+          this.modelCatalog.estimate(model, tokensIn, tokensOut),
       });
     }
     const key = await this.secrets.get('ANTHROPIC_API_KEY');

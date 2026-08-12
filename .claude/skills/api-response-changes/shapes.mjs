@@ -17,7 +17,7 @@
 //     a break for every reader that does not null-check, even though the key is
 //     still present on the wire.
 
-import { sliceBalanced, splitTopLevel } from '../api-breaking-changes/surface.mjs';
+import { sliceBalanced, splitTopLevel } from '../source-scan/scan.mjs';
 
 /** Ops that only narrow/annotate — the output shape survives them unchanged. */
 const PASSTHROUGH_OPS = new Set([

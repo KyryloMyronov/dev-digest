@@ -19,13 +19,25 @@
 // install, or tsconfig, and it must survive a branch whose code does not
 // typecheck yet. The parse is deliberately shallow — see PARSING LIMITS at the
 // bottom of SKILL.md for what that costs.
+//
+// The scanner and ref I/O live in `../source-scan/scan.mjs`, shared with the two
+// response skills. Everything below is the API-surface modelling that is specific
+// to this skill.
 
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { git, REPO_ROOT, matchesAny } from '../pr-self-review/lib.mjs';
+import {
+  WORKTREE,
+  lineAt,
+  listFiles,
+  matchesAny,
+  readAt,
+  readExpression,
+  sliceBalanced,
+  splitTopLevel,
+  stringLiteral,
+  stripComments,
+} from '../source-scan/scan.mjs';
 
-/** Sentinel ref meaning "the working tree", so this runs before a commit. */
-export const WORKTREE = 'WORKTREE';
+export { WORKTREE, listFiles, readAt };
 
 const HTTP_VERBS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'];
 
@@ -42,163 +54,6 @@ export const FILE_SETS = {
   ],
   consumers: ['client/src/**/*.ts', 'client/src/**/*.tsx'],
 };
-
-/* ────────────────────────────── ref I/O ────────────────────────────── */
-
-/** All tracked paths at `ref`; for the working tree, tracked + untracked. */
-export function listFiles(ref) {
-  const out =
-    ref === WORKTREE
-      ? git(['ls-files', '--cached', '--others', '--exclude-standard', '-z'])
-      : git(['ls-tree', '-r', '--name-only', '-z', ref]);
-  return out.split('\0').filter(Boolean);
-}
-
-/** File content at `ref`, or null when the file does not exist there. */
-export function readAt(ref, path) {
-  if (ref === WORKTREE) {
-    const abs = join(REPO_ROOT, path);
-    if (!existsSync(abs)) return null;
-    try {
-      return readFileSync(abs, 'utf8');
-    } catch {
-      return null;
-    }
-  }
-  return git(['show', `${ref}:${path}`], { soft: true });
-}
-
-/* ─────────────────────── tiny TS/JS source scanner ─────────────────────── */
-
-const PAIRS = { '(': ')', '{': '}', '[': ']' };
-
-/** Index just past the string starting at `i`. Handles `${...}` in templates. */
-function skipString(src, i) {
-  const quote = src[i];
-  i++;
-  while (i < src.length) {
-    const c = src[i];
-    if (c === '\\') {
-      i += 2;
-      continue;
-    }
-    if (quote === '`' && c === '$' && src[i + 1] === '{') {
-      i = sliceBalanced(src, i + 1).end;
-      continue;
-    }
-    if (c === quote) return i + 1;
-    i++;
-  }
-  return i;
-}
-
-/** `{ inner, end }` for the bracket at `openIdx`; strings are skipped whole. */
-export function sliceBalanced(src, openIdx) {
-  const open = src[openIdx];
-  const close = PAIRS[open];
-  let depth = 0;
-  let i = openIdx;
-  while (i < src.length) {
-    const c = src[i];
-    if (c === "'" || c === '"' || c === '`') {
-      i = skipString(src, i);
-      continue;
-    }
-    if (c === open) depth++;
-    else if (c === close) {
-      depth--;
-      if (depth === 0) return { inner: src.slice(openIdx + 1, i), end: i + 1 };
-    }
-    i++;
-  }
-  return { inner: src.slice(openIdx + 1), end: src.length };
-}
-
-/**
- * Drop comments, keeping every newline so reported line numbers still match
- * the file on disk. A JSDoc block above a route is the single most common
- * source of a phantom `app.get(...)` match — those blocks document routes.
- */
-export function stripComments(src) {
-  let out = '';
-  let i = 0;
-  while (i < src.length) {
-    const c = src[i];
-    if (c === '/' && src[i + 1] === '/') {
-      while (i < src.length && src[i] !== '\n') i++;
-      continue;
-    }
-    if (c === '/' && src[i + 1] === '*') {
-      i += 2;
-      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) {
-        if (src[i] === '\n') out += '\n';
-        i++;
-      }
-      i += 2;
-      continue;
-    }
-    if (c === "'" || c === '"' || c === '`') {
-      const end = skipString(src, i);
-      out += src.slice(i, end);
-      i = end;
-      continue;
-    }
-    out += c;
-    i++;
-  }
-  return out;
-}
-
-/** Split `a, b, c` on top-level commas only. */
-export function splitTopLevel(text) {
-  const parts = [];
-  let start = 0;
-  let depth = 0;
-  let i = 0;
-  while (i < text.length) {
-    const c = text[i];
-    if (c === "'" || c === '"' || c === '`') {
-      i = skipString(text, i);
-      continue;
-    }
-    if ('([{'.includes(c)) depth++;
-    else if (')]}'.includes(c)) depth--;
-    else if (c === ',' && depth === 0) {
-      parts.push(text.slice(start, i));
-      start = i + 1;
-    }
-    i++;
-  }
-  parts.push(text.slice(start));
-  return parts.map((p) => p.trim()).filter(Boolean);
-}
-
-/** The expression starting at `i`, up to the top-level `;` or newline-ish end. */
-export function readExpression(src, i) {
-  const start = i;
-  let depth = 0;
-  while (i < src.length) {
-    const c = src[i];
-    if (c === "'" || c === '"' || c === '`') {
-      i = skipString(src, i);
-      continue;
-    }
-    if ('([{'.includes(c)) depth++;
-    else if (')]}'.includes(c)) depth--;
-    else if (c === ';' && depth === 0) break;
-    i++;
-  }
-  return src.slice(start, i).trim();
-}
-
-export const lineAt = (src, idx) => src.slice(0, idx).split('\n').length;
-
-/** `'/agents'` / `"/agents"` / `` `/agents` `` → `/agents`, else null. */
-export function stringLiteral(text) {
-  const t = text.trim();
-  const m = /^(['"`])([\s\S]*)\1$/.exec(t);
-  return m ? m[2] : null;
-}
 
 /* ───────────────────────────── zod shapes ───────────────────────────── */
 

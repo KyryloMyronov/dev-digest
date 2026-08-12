@@ -78,6 +78,20 @@
       "when": 1785686246798,
       "tag": "0010_overrated_songbird",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786402145217,
+      "tag": "0011_red_dagger",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786402159493,
+      "tag": "0012_misty_tattoo",
+      "breakpoints": true
     }
   ]
 }

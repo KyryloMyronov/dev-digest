@@ -8,6 +8,9 @@ import type { ReviewRepository, FindingRow, PullRow, ReviewRow } from './reposit
 import { REVIEW_STRATEGY } from './constants.js';
 import { taskLine } from './helpers.js';
 import { loadDiff } from './diff-loader.js';
+// `skills` is another module's table; the row → DTO mapper and the block renderer
+// are shared through `_shared/` because `reviews` legitimately reads a skill row.
+import { skillPromptBlock, toSkillDto } from '../_shared/skills.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
 export class RunCancelledError extends Error {
@@ -184,6 +187,10 @@ export class ReviewRunExecutor {
 
       const task = taskLine(pull) + rankNote;
 
+      // L02 — the agent's linked skills, resolved to ordered prompt blocks. The
+      // guidance layer is best-effort: see buildSkillBlocks.
+      const skills = await this.buildSkillBlocks(agent.id, runLog);
+
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
       // the CI runner). The service owns only I/O: repo-intel context resolution
@@ -201,6 +208,11 @@ export class ReviewRunExecutor {
         ...(callersDigest ? { callers: callersDigest } : {}),
         // T3 — repo skeleton, same omit-when-empty contract.
         ...(repoMap ? { repoMap } : {}),
+        // L02 — skills. The key is OMITTED when no skill is active, so the user
+        // message is byte-identical to the pre-skills baseline; that equality is
+        // what the with/without comparison measures against. An empty array
+        // would be equivalent today but states the wrong intent.
+        ...(skills.length > 0 ? { skills } : {}),
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
@@ -315,6 +327,48 @@ export class ReviewRunExecutor {
       this.container.runBus.complete(runId);
       throw err;
     }
+  }
+
+  /**
+   * Resolve the agent's linked skills into ordered prompt blocks.
+   *
+   * TWO switches gate a block and both must be true: `agent_skills.enabled`
+   * (this agent uses this skill) and `skills.enabled` (the library-wide kill
+   * switch). Order is the link's, so the Skills tab's arrows decide the order the
+   * blocks are concatenated in.
+   *
+   * Skipped skills are logged BY NAME. A block that is missing because the user
+   * switched it off and a block that is missing because this wiring broke look
+   * identical in the assembled prompt — the log line is the only thing that
+   * tells them apart.
+   *
+   * Never throws. Failing a whole review over the guidance layer is worse than
+   * reviewing without it, so a lookup failure degrades to an unskilled run and
+   * says so in the log.
+   */
+  private async buildSkillBlocks(agentId: string, runLog: RunLogger): Promise<string[]> {
+    let links;
+    try {
+      links = await this.agents.linkedSkills(agentId);
+    } catch (err) {
+      runLog.info(`skills: lookup failed, reviewing without them — ${(err as Error).message}`);
+      return [];
+    }
+    if (links.length === 0) return [];
+
+    const active = links.filter((l) => l.enabled && l.skill.enabled);
+    const skipped = links.filter((l) => !(l.enabled && l.skill.enabled));
+
+    if (active.length > 0) {
+      const names = active.map((l) => l.skill.name).join(', ');
+      runLog.info(`Skills attached (${active.length}): ${names}`);
+    }
+    if (skipped.length > 0) {
+      const names = skipped.map((l) => l.skill.name).join(', ');
+      runLog.info(`Skills disabled, not in prompt: ${names}`);
+    }
+
+    return active.map((l) => skillPromptBlock(toSkillDto(l.skill)));
   }
 
   /**

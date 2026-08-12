@@ -6,7 +6,11 @@ import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
   PERFORMANCE_REVIEWER_PROMPT,
+  TEST_QUALITY_REVIEWER_PROMPT,
 } from './seed-prompts.js';
+import { seedConventions } from './seed-conventions.js';
+import { seedSkills } from './seed-skills.js';
+import { seedClaudeSkills } from './seed-claude-skills.js';
 
 /** Default provider/model for the built-in reviewer agents. */
 const DEFAULT_PROVIDER = 'openrouter' as const;
@@ -27,8 +31,13 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  * spread — because the Pull Requests list is the screen the starter opens on and
  * a single row demonstrates none of it.
  *
- * Course lessons populate the other tables (skills, conventions, memory, eval,
- * …) once their features are built — they start empty here.
+ * Also seeds three demo conventions on that repo plus the scan that "found"
+ * them (see seed-conventions.ts): the demo repo has no clone and is never
+ * indexed, so a real extraction can only degrade, and the Conventions screen
+ * would otherwise be permanently empty.
+ *
+ * Course lessons populate the remaining tables (skills, memory, eval, …) once
+ * their features are built — those start empty here.
  */
 
 export const DEFAULT_WORKSPACE_NAME = 'default';
@@ -531,6 +540,19 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       version: 1,
       createdBy: userId,
     },
+    {
+      workspaceId,
+      name: 'Test Quality Reviewer',
+      description: 'Reviews the tests in a PR — does the suite actually pin the new behaviour?',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      // Deliberately thin: its rubrics are the skills linked below. See
+      // seed-prompts.ts and docs/agent-prompts/test-quality-reviewer.md.
+      systemPrompt: TEST_QUALITY_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
   ];
   for (const a of seedAgents) {
     const [existing] = await db
@@ -539,6 +561,19 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name)));
     if (!existing) await db.insert(t.agents).values(a);
   }
+
+  // ---- built-in skills + their agent links ----
+  // AFTER the agents above: links are resolved by agent name, and a link whose
+  // agent does not exist yet is skipped, not retried.
+  await seedSkills(db, workspaceId);
+
+  // ---- this repo's own `.claude/skills/*/SKILL.md`, as library rows ----
+  // Unlinked from every agent on purpose: they are coding-agent guidance, not
+  // review guidance, and 18 of them would swamp any review prompt.
+  await seedClaudeSkills(db, workspaceId);
+
+  // ---- demo conventions + the scan that "found" them ----
+  await seedConventions(db, workspaceId, repoId);
 
   return { workspaceId, userId };
 }

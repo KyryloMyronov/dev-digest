@@ -18,6 +18,51 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-12 — the skills' source scanner is now one file, and `<` in `PAIRS` was provably safe
+
+**Rubric:** What Works
+**Supersedes:** 2026-08-12 — angle-bracket slicing is safe only when anchored at a verified generic
+**Symptom:** the two entries below describe the scanner as living in two places —
+`.claude/skills/api-breaking-changes/surface.mjs` (no `<` in `PAIRS`) and
+`.claude/skills/response-schema/lib.mjs` (with `<`). Both pointers are now stale:
+`lib.mjs` is 19 lines of severity helpers and `surface.mjs` has no scanner at all.
+An agent following either would go looking for a pairing table that is not there,
+and could "restore" a second copy.
+**Cause:** the copies were consolidated into
+`.claude/skills/source-scan/scan.mjs`, the single owner of git-ref I/O
+(`WORKTREE`/`listFiles`/`readAt`) and the scanner (`sliceBalanced`,
+`stripComments`, `splitTopLevel`, `readExpression`, `lineAt`, `stringLiteral`).
+`api-breaking-changes`, `api-response-changes` and `response-schema` all import
+it; no skill reaches into another skill's internals any more.
+
+The unification was safe for a reason worth keeping, because it looks dangerous
+and is not: **`sliceBalanced` moves depth only on `c === open` or `c === close`,
+where `open` is the character at the index you pass.** So adding `'<': '>'` to
+`PAIRS` changes behaviour *only* for slices anchored directly at a `<`. Inside a
+`(`, `{` or `[` slice, `<` was already an ordinary character in both copies and
+`a < 5 && b > 3` could never unbalance anything. The `<`-aware table is therefore
+a strict superset, which is why adopting it produced **byte-identical output**
+from all six surface and check entry points across the three skills.
+**Fix:** the call-site rule from the superseded entry still holds and now lives at
+the top of `scan.mjs` and under "The angle-bracket rule" in
+`.claude/skills/source-scan/SKILL.md` — anchor at a `<` only where a lookahead
+has proved it opens a generic; for a fully wrapped generic use
+`^Promise\s*<([\s\S]*)>$` instead of slicing. When changing the scanner, verify
+with fixed invariants, not by reading a report — a scanner bug in a differential
+tool shows up as a *missing* finding, not a crash:
+
+```sh
+node .claude/skills/api-breaking-changes/surface.mjs | grep -c '"method"'      # 101
+node .claude/skills/response-schema/responses.mjs    | grep -c '"typeText"'    # 47
+node .claude/skills/api-response-changes/response-surface.mjs --summary | wc -l # 53
+```
+
+Do not add a `legacy`/`strict` flag to `sliceBalanced` to restore an old
+behaviour — two behaviours behind one name is how the copies drifted. Two callers
+needing different semantics need two named functions. `pr-self-review/lib.mjs`
+still keeps its own `git`/`matchesAny` (it is a changeset collector with no
+scanner); that overlap is known and out of scope, not an oversight.
+
 ## 2026-08-12 — angle-bracket slicing is safe only when anchored at a verified generic
 
 **Rubric:** What Works

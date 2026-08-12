@@ -1,15 +1,18 @@
 import type { Container } from '../../platform/container.js';
 import type {
   Agent,
-  AgentSkillLink,
+  AgentSkillDetail,
   AgentVersion,
   CiFailOn,
   ModelInfo,
   Provider,
   ReviewStrategy,
 } from '@devdigest/shared';
-import { AgentsRepository } from './repository.js';
+import { AgentsRepository, type SkillLinkInput } from './repository.js';
 import { toAgentDto, toAgentVersionDto } from './helpers.js';
+// `skills` is another module's table; the row → DTO mapper is shared through
+// `_shared/` because `agents` legitimately reads a skill row to inline it.
+import { toSkillDto } from '../_shared/skills.js';
 
 /**
  * A2 — agents service. Business logic for the Agents tab + Agent Editor.
@@ -135,24 +138,38 @@ export class AgentsService {
     return row ? toAgentVersionDto(row) : undefined;
   }
 
-  /** Linked skills for an agent as AgentSkillLink[] (ordered). */
-  async skillLinks(agentId: string): Promise<AgentSkillLink[]> {
+  /**
+   * The agent's linked skills, ordered, each with its skill inlined.
+   *
+   * `AgentSkillDetail` rather than the bare `AgentSkillLink`: the Skills tab
+   * renders a whole agent's list in one response, so inlining saves an N+1 over
+   * `/skills/:id`. Every link mutation below returns this same full list, so the
+   * client seeds its cache from the response instead of refetching.
+   */
+  async skillLinks(agentId: string): Promise<AgentSkillDetail[]> {
     const links = await this.repo.linkedSkills(agentId);
-    return links.map((l) => ({ agent_id: agentId, skill_id: l.skill.id, order: l.order }));
+    return links.map((l) => ({
+      agent_id: agentId,
+      skill_id: l.skill.id,
+      order: l.order,
+      enabled: l.enabled,
+      skill: toSkillDto(l.skill),
+    }));
   }
 
   /**
-   * Set / reorder the agent's linked skills. If `skillIds` is provided, replaces
-   * the whole set in that order. Returns the resulting ordered links.
+   * Replace the agent's whole ordered link set. `links` carries each entry's
+   * per-agent `enabled`, so a reorder and a toggle are one save — and a reorder
+   * cannot silently re-enable a muted link by falling back to the default.
    */
   async setSkills(
     workspaceId: string,
     agentId: string,
-    skillIds: string[],
-  ): Promise<AgentSkillLink[] | undefined> {
+    links: SkillLinkInput[],
+  ): Promise<AgentSkillDetail[] | undefined> {
     const agent = await this.repo.getById(workspaceId, agentId);
     if (!agent) return undefined;
-    await this.repo.setSkills(agentId, skillIds);
+    await this.repo.setSkills(agentId, links);
     return this.skillLinks(agentId);
   }
 
@@ -162,12 +179,45 @@ export class AgentsService {
     agentId: string,
     skillId: string,
     order?: number,
-  ): Promise<AgentSkillLink[] | undefined> {
+  ): Promise<AgentSkillDetail[] | undefined> {
     const agent = await this.repo.getById(workspaceId, agentId);
     if (!agent) return undefined;
     const existing = await this.repo.linkedSkills(agentId);
     const resolvedOrder = order ?? existing.length;
     await this.repo.linkSkill(agentId, skillId, resolvedOrder);
+    return this.skillLinks(agentId);
+  }
+
+  /**
+   * Flip one link's per-agent switch. The link keeps its slot in the
+   * concatenation, which is the point: switching a skill off and back on changes
+   * nothing about the prompt except the presence of that one block.
+   *
+   * Returns `undefined` for an unknown/foreign agent AND for a skill this agent
+   * has not linked — both are a 404 to the caller.
+   */
+  async setSkillEnabled(
+    workspaceId: string,
+    agentId: string,
+    skillId: string,
+    enabled: boolean,
+  ): Promise<AgentSkillDetail[] | undefined> {
+    const agent = await this.repo.getById(workspaceId, agentId);
+    if (!agent) return undefined;
+    const updated = await this.repo.setLinkEnabled(agentId, skillId, enabled);
+    if (!updated) return undefined;
+    return this.skillLinks(agentId);
+  }
+
+  /** Detach one skill from this agent. The skill itself is untouched. */
+  async unlinkSkill(
+    workspaceId: string,
+    agentId: string,
+    skillId: string,
+  ): Promise<AgentSkillDetail[] | undefined> {
+    const agent = await this.repo.getById(workspaceId, agentId);
+    if (!agent) return undefined;
+    await this.repo.unlinkSkill(agentId, skillId);
     return this.skillLinks(agentId);
   }
 

@@ -20,11 +20,13 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [api-breaking-changes](api-breaking-changes/SKILL.md) | Full-stack | Detect wire-format breaks in a change — removed/renamed endpoints, weakened contracts, orphaned studio calls |
 | [api-response-changes](api-response-changes/SKILL.md) | Full-stack | Detect response-payload breaks — fields removed or flipped optional/nullable, swapped response types, `.partial()` on a served contract |
 | [response-schema](response-schema/SKILL.md) | Full-stack | Diff response payloads from the *consumer's* side — the studio's `api.get<T>()` generic as the declaration, with nested field paths and served/unserved severity |
+| [source-scan](source-scan/SKILL.md) | Shared | **Library, nothing to run.** The one git-ref I/O + bracket-aware TS/JS scanner the three API skills are built on |
 
 All skills above except `engineering-insights`, `api-breaking-changes`,
-`api-response-changes` and `response-schema` are vendored from upstream and
-hash-locked by [`skills-lock.json`](../../skills-lock.json); local edits to them
-get overwritten on sync. Those four are authored here and are not locked.
+`api-response-changes`, `response-schema` and `source-scan` are vendored from
+upstream and hash-locked by [`skills-lock.json`](../../skills-lock.json); local
+edits to them get overwritten on sync. Those five are authored here and are not
+locked.
 
 ### The three API skills
 
@@ -43,6 +45,15 @@ generic and will catch a payload that no longer matches the type consumers
 compile against — including the case where the *generic itself* was always
 wrong. Neither subsumes the other; run both before a PR that touches
 `vendor/shared/`, and expect duplicate findings where they agree.
+
+All three read TypeScript **without compiling it**, through one shared library:
+[`source-scan`](source-scan/SKILL.md) (git-ref I/O + the bracket-aware scanner).
+That scanner previously existed as two copies which drifted on whether `<`
+belongs in the bracket-pairing table — a divergence that produced a silent wrong
+answer and two entries in the root `insights.md`. Before changing a balanced
+slice in any of the three, read that skill's **angle-bracket rule**, and verify
+with the fixed invariants it lists (101 routes · 47 caller bindings · 53
+endpoints) rather than by eyeballing a report.
 
 ## What Are Skills?
 

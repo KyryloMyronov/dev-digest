@@ -7,8 +7,9 @@
 // request bodies, and the module registry are the `api-breaking-changes`
 // skill's job; this one says nothing about them.
 
-import { buildResponseSurface, WORKTREE, bindingKey } from './responses.mjs';
-import { git, SEVERITY_ORDER, downgrade } from './lib.mjs';
+import { buildResponseSurface, bindingKey } from './responses.mjs';
+import { git, WORKTREE } from '../source-scan/scan.mjs';
+import { SEVERITY_ORDER, downgrade } from './lib.mjs';
 
 const MAX_DIFF_DEPTH = 8;
 

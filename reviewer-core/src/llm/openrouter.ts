@@ -116,9 +116,10 @@ export class OpenRouterProvider implements LLMProvider {
   }
 
   /**
-   * List models with pricing from the OpenRouter `/models` endpoint (the OpenAI
-   * SDK's models.list strips the `pricing` field, so we fetch raw). Prices are
-   * converted from per-token to USD per 1M tokens; cheapest output first.
+   * List models with pricing and capabilities from the OpenRouter `/models`
+   * endpoint (the OpenAI SDK's models.list strips both `pricing` and
+   * `supported_parameters`, so we fetch raw). Prices are converted from
+   * per-token to USD per 1M tokens; cheapest output first.
    */
   async listModels(): Promise<ModelInfo[]> {
     const res = await fetch(`${this.baseURL}/models`, {
@@ -131,6 +132,7 @@ export class OpenRouterProvider implements LLMProvider {
         name?: string;
         context_length?: number;
         pricing?: { prompt?: string; completion?: string };
+        supported_parameters?: string[];
       }>;
     };
     const models: ModelInfo[] = (json.data ?? []).map((m) => {
@@ -149,6 +151,9 @@ export class OpenRouterProvider implements LLMProvider {
         label: m.name ?? null,
         pricing,
         contextLength: m.context_length ?? null,
+        // Passed through verbatim. `null` means OpenRouter told us nothing, which
+        // callers must distinguish from an empty list ("supports nothing").
+        supportedParameters: m.supported_parameters ?? null,
       };
     });
     return models.sort(

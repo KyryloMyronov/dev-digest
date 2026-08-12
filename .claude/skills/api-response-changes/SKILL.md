@@ -165,9 +165,11 @@ through.
 | `check.mjs` | diffs two surfaces, classifies, reports |
 | `rules.md` | one entry per rule: what breaks, why that severity, how to migrate |
 
-The low-level source scanner (comment stripping, balanced-bracket slicing) is
-imported from `../api-breaking-changes/surface.mjs` rather than duplicated —
-that skill is not hash-locked, and one scanner with one set of bugs beats two.
+The low-level source scanner and git-ref I/O (comment stripping,
+balanced-bracket slicing, `readAt`) come from `../source-scan/scan.mjs`, shared
+with `api-breaking-changes` and `response-schema` — one scanner with one set of
+bugs beats three. Read that skill's **angle-bracket rule** before touching any
+balanced slice here.
 The Zod resolution is deliberately *not* shared, because it has to model what
 that one records as opaque.
 

@@ -46,6 +46,19 @@ export interface UpdateAgent {
 export interface LinkedSkillRow {
   skill: typeof t.skills.$inferSelect;
   order: number;
+  /**
+   * The PER-AGENT switch (`agent_skills.enabled`) — NOT `skills.enabled`. A block
+   * reaches the prompt only when both are true; see `buildSkillBlocks` in
+   * `modules/reviews/run-executor.ts`.
+   */
+  enabled: boolean;
+}
+
+/** One entry of a full link-set replacement: the skill, and its per-agent switch. */
+export interface SkillLinkInput {
+  skillId: string;
+  /** Defaults to true — attaching a skill means using it. */
+  enabled?: boolean;
 }
 
 export class AgentsRepository {
@@ -188,15 +201,19 @@ export class AgentsRepository {
 
   // ---- agent_skills link table (A2 owns the agent side) -------------------
 
-  /** Skills linked to an agent, in `order` ascending. */
+  /** Skills linked to an agent, in `order` ascending — the prompt's block order. */
   async linkedSkills(agentId: string): Promise<LinkedSkillRow[]> {
     const rows = await this.db
-      .select({ skill: t.skills, order: t.agentSkills.order })
+      .select({
+        skill: t.skills,
+        order: t.agentSkills.order,
+        enabled: t.agentSkills.enabled,
+      })
       .from(t.agentSkills)
       .innerJoin(t.skills, eq(t.agentSkills.skillId, t.skills.id))
       .where(eq(t.agentSkills.agentId, agentId))
       .orderBy(asc(t.agentSkills.order));
-    return rows.map((r) => ({ skill: r.skill, order: r.order }));
+    return rows.map((r) => ({ skill: r.skill, order: r.order, enabled: r.enabled }));
   }
 
   async skillIdsForAgent(agentId: string): Promise<string[]> {
@@ -204,7 +221,12 @@ export class AgentsRepository {
     return links.map((l) => l.skill.id);
   }
 
-  /** Link a skill to an agent at a given order (idempotent: upserts order). */
+  /**
+   * Link a skill to an agent at a given order (idempotent: upserts order).
+   *
+   * The conflict path sets `order` and deliberately NOT `enabled`: re-linking an
+   * already-attached skill must not silently re-enable a link the user muted.
+   */
   async linkSkill(agentId: string, skillId: string, order: number): Promise<void> {
     await this.db
       .insert(t.agentSkills)
@@ -215,6 +237,20 @@ export class AgentsRepository {
       });
   }
 
+  /**
+   * Flip ONE link's per-agent switch, leaving every `order` untouched — this is
+   * what makes the with/without comparison one click and one click back.
+   * Returns false when the agent has no such link, so the route can 404.
+   */
+  async setLinkEnabled(agentId: string, skillId: string, enabled: boolean): Promise<boolean> {
+    const rows = await this.db
+      .update(t.agentSkills)
+      .set({ enabled })
+      .where(and(eq(t.agentSkills.agentId, agentId), eq(t.agentSkills.skillId, skillId)))
+      .returning({ skillId: t.agentSkills.skillId });
+    return rows.length > 0;
+  }
+
   async unlinkSkill(agentId: string, skillId: string): Promise<void> {
     await this.db
       .delete(t.agentSkills)
@@ -222,15 +258,28 @@ export class AgentsRepository {
   }
 
   /**
-   * Replace the full set of linked skills for an agent with `skillIds`, assigning
-   * order = index. Used by the "Skills" editor tab (attach/reorder). Skills not in
-   * the list are unlinked.
+   * Replace the full set of linked skills for an agent, assigning order = index
+   * and carrying each link's `enabled` through. Used by the "Skills" editor tab
+   * (attach / reorder / detach-by-omission); skills absent from `links` are
+   * unlinked.
+   *
+   * Delete-then-insert runs in ONE transaction on purpose. The intermediate state
+   * is an agent with no skills at all, so a review that started between the two
+   * statements would assemble a prompt with the skills block missing entirely —
+   * a silently wrong run rather than a failed one.
    */
-  async setSkills(agentId: string, skillIds: string[]): Promise<void> {
-    await this.db.delete(t.agentSkills).where(eq(t.agentSkills.agentId, agentId));
-    if (skillIds.length === 0) return;
-    await this.db
-      .insert(t.agentSkills)
-      .values(skillIds.map((skillId, i) => ({ agentId, skillId, order: i })));
+  async setSkills(agentId: string, links: SkillLinkInput[]): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.delete(t.agentSkills).where(eq(t.agentSkills.agentId, agentId));
+      if (links.length === 0) return;
+      await tx.insert(t.agentSkills).values(
+        links.map((l, i) => ({
+          agentId,
+          skillId: l.skillId,
+          order: i,
+          enabled: l.enabled ?? true,
+        })),
+      );
+    });
   }
 }

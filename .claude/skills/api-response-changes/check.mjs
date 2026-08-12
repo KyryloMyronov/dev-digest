@@ -19,13 +19,8 @@
 //
 // Every rule is documented with its migration in `rules.md`.
 
-import { git } from '../pr-self-review/lib.mjs';
-import {
-  buildResponseSurface,
-  createReaderLookup,
-  readAt,
-  WORKTREE,
-} from './response-surface.mjs';
+import { git, readAt, WORKTREE } from '../source-scan/scan.mjs';
+import { buildResponseSurface, createReaderLookup } from './response-surface.mjs';
 import { arrayDepth, describeShape, diffShape, typeOf, unwrap } from './shapes.mjs';
 
 const SEVERITY_ORDER = ['critical', 'major', 'minor', 'info'];

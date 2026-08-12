@@ -144,12 +144,19 @@ the PR description, list the consumers you updated, and move on.
 |---|---|
 | `responses.mjs` | extracts the response surface at any git ref — contracts, bindings, mirror. Run it alone (`node responses.mjs [ref]`) to dump it as JSON. |
 | `check.mjs` | diffs two surfaces, collapses duplicates, classifies, reports |
-| `lib.mjs` | git I/O, globbing, and the bracket-aware source scanner |
+| `lib.mjs` | severity ordering and `downgrade` — this skill's own severity policy |
 | `rules.md` | one entry per rule: what breaks, why that severity, how to migrate |
 
-`lib.mjs` deliberately does not import `../pr-self-review/lib.mjs`: this skill
-has to keep working when only `.claude/` is checked out, and its scanner
-diverges anyway (balanced `<…>` slicing, TypeScript type literals).
+git I/O, globbing and the bracket-aware source scanner come from
+`../source-scan/scan.mjs`, shared with `api-breaking-changes` and
+`api-response-changes`. They used to live in `lib.mjs`; that copy and the one in
+`api-breaking-changes` had already drifted on whether `<` belongs in the
+bracket-pairing table, which is exactly the bug that skill's **angle-bracket
+rule** now documents — read it before touching a balanced slice here, especially
+in `extractCallerBindings`, whose `<`-anchored slice is the sanctioned case.
+
+Standalone-ness is unaffected: `scan.mjs` is a sibling under `.claude/skills/`,
+so a CI job or a copy that checks out only `.claude/` still has everything.
 
 ## Extending it
 

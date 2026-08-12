@@ -22,19 +22,17 @@
 
 import {
   WORKTREE,
-  listFiles,
-  readAt,
   lineAt,
+  listFiles,
+  matchesAny,
+  readAt,
+  readExpression,
   sliceBalanced,
   splitTopLevel,
   stringLiteral,
   stripComments,
-  readExpression,
-} from '../api-breaking-changes/surface.mjs';
-import { matchesAny } from '../pr-self-review/lib.mjs';
+} from '../source-scan/scan.mjs';
 import { resolveShape, typeOf } from './shapes.mjs';
-
-export { WORKTREE, readAt, listFiles };
 
 const HTTP_VERBS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'];
 

@@ -83,6 +83,10 @@ State it in the PR description, list the callers you updated, and move on.
 | `check.mjs` | diffs two surfaces, classifies, reports |
 | `rules.md` | one entry per rule: what breaks, why that severity, how to migrate |
 
+The source scanner and git-ref I/O come from `../source-scan/scan.mjs`, shared
+with `api-response-changes` and `response-schema`. Read that skill's
+**angle-bracket rule** before touching a balanced slice here.
+
 ## Extending it
 
 - **New rule** → the classification block in `check.mjs` *and* a row in
@@ -98,10 +102,11 @@ State it in the PR description, list the callers you updated, and move on.
 
 ## Parsing limits
 
-`surface.mjs` scans source text with a bracket-aware regex rather than the
-TypeScript compiler, because it has to read files straight out of a git ref
-(`git show ref:path`) with no checkout, no install, and no tsconfig — and has to
-work on a branch that does not typecheck yet. What that costs:
+`surface.mjs` scans source text with the bracket-aware scanner in
+`../source-scan/scan.mjs` rather than the TypeScript compiler, because it has to
+read files straight out of a git ref (`git show ref:path`) with no checkout, no
+install, and no tsconfig — and has to work on a branch that does not typecheck
+yet. What that costs:
 
 - A route path built at runtime is only seen as its literal text.
   `` app.post(`/findings/:id/${action}`) `` (reviews/routes.ts) becomes the

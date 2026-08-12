@@ -12,8 +12,8 @@
 // on each finding is the anchor there. If you add a rule here, add it there —
 // a severity nobody can justify is a severity people learn to ignore.
 
-import { git } from '../pr-self-review/lib.mjs';
-import { buildSurface, readAt, canonical, servesPath, WORKTREE } from './surface.mjs';
+import { git, readAt, WORKTREE } from '../source-scan/scan.mjs';
+import { buildSurface, canonical, servesPath } from './surface.mjs';
 
 const SEVERITY_ORDER = ['critical', 'major', 'minor', 'info'];
 const rank = (s) => SEVERITY_ORDER.indexOf(s);

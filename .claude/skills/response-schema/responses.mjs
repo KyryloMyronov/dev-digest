@@ -23,22 +23,20 @@
 // not typecheck yet. What that costs is listed under "Parsing limits" in
 // SKILL.md — read those before trusting a surprising finding.
 
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import {
-  REPO_ROOT,
-  git,
-  matchesAny,
-  sliceBalanced,
-  stripComments,
-  splitTopLevel,
-  readExpression,
+  WORKTREE,
   lineAt,
+  listFiles,
+  matchesAny,
+  readAt,
+  readExpression,
+  sliceBalanced,
+  splitTopLevel,
   stringLiteral,
-} from './lib.mjs';
+  stripComments,
+} from '../source-scan/scan.mjs';
 
-/** Sentinel ref meaning "the working tree", so this runs before a commit. */
-export const WORKTREE = 'WORKTREE';
+export { WORKTREE };
 
 const MAX_DEPTH = 14;
 
@@ -57,28 +55,7 @@ export const FILE_SETS = {
   callers: ['client/src/**/*.ts', 'client/src/**/*.tsx'],
 };
 
-/* ────────────────────────────── ref I/O ────────────────────────────── */
-
-export function listFiles(ref) {
-  const out =
-    ref === WORKTREE
-      ? git(['ls-files', '--cached', '--others', '--exclude-standard', '-z'])
-      : git(['ls-tree', '-r', '--name-only', '-z', ref]);
-  return out.split('\0').filter(Boolean);
-}
-
-export function readAt(ref, path) {
-  if (ref === WORKTREE) {
-    const abs = join(REPO_ROOT, path);
-    if (!existsSync(abs)) return null;
-    try {
-      return readFileSync(abs, 'utf8');
-    } catch {
-      return null;
-    }
-  }
-  return git(['show', `${ref}:${path}`], { soft: true });
-}
+// Ref I/O (`WORKTREE`, `listFiles`, `readAt`) comes from `../source-scan/scan.mjs`.
 
 /* ──────────────────────────── expression chain ──────────────────────────── */
 

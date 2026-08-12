@@ -5,22 +5,72 @@
     "headingPrefix": "Conventions in ",
     "repoFallback": "repo",
     "subtitle": "Scan the cloned repo to surface house-rules — each backed by evidence you can turn into a Skill.",
+    "scanSummary": "Detected from {files, plural, one {# sample file} other {# sample files}} · last scan {ago}",
+    "neverScanned": "Not scanned yet",
+    "scanFailed": "The last scan failed. Re-scan to try again.",
+    "scanModelUnsupported": "The selected model can't produce structured output, which this scan needs. Pick a different model in Settings → Models, then re-scan.",
+    "scanDegraded": "The last scan could not run — index the repo first, then re-scan.",
     "scanning": "Scanning…",
     "rescan": "Re-scan",
-    "runExtraction": "Run extraction",
-    "extractionFailed": "Extraction failed",
     "loadError": "Could not load conventions.",
     "empty": {
       "title": "No conventions extracted yet",
       "body": "Scan the repo to surface house-rules — naming, error handling, structure — each backed by evidence you can turn into a Skill.",
       "cta": "Run extraction"
-    },
-    "candidateCount": "{count, plural, one {# candidate} other {# candidates}} · grounded against sampled files"
+    }
+  },
+  "toolbar": {
+    "deselectAll": "Deselect all",
+    "acceptedOf": "{accepted} of {total} accepted",
+    "createSkill": "Create skill"
   },
   "card": {
     "confidence": "Confidence",
+    "accept": "Accept",
     "accepted": "Accepted",
-    "accepting": "Accepting…",
-    "acceptAsSkill": "Accept as Skill"
+    "reject": "Reject",
+    "rejected": "Rejected",
+    "edit": "Edit this rule",
+    "saveEdit": "Save",
+    "cancelEdit": "Cancel",
+    "ruleLabel": "Convention rule",
+    "rulePlaceholder": "Describe the rule a reviewer should enforce…"
+  },
+  "evidence": {
+    "copy": "Copy snippet",
+    "copied": "Copied"
+  },
+  "createSkill": {
+    "title": "Create skill from conventions",
+    "loading": "Composing the skill…",
+    "loadError": "Could not compose a skill from the accepted conventions.",
+    "banner": "Merged from {count, plural, one {# accepted convention} other {# accepted conventions}} in {repo}. Everything below is editable before you save.",
+    "nameLabel": "Name",
+    "namePlaceholder": "my-repo-conventions",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "What this skill is for",
+    "typeLabel": "Type",
+    "type": {
+      "rubric": "rubric",
+      "convention": "convention",
+      "security": "security",
+      "custom": "custom"
+    },
+    "enabledLabel": "Enabled",
+    "enabledHint": "Whether this block is added to agents' prompts.",
+    "bodyLabel": "Skill body",
+    "footNote": "Saved as v1 · added to Skills Lab",
+    "cancel": "Cancel",
+    "submit": "Create skill",
+    "saving": "Creating…",
+    "saveFailed": "Could not create the skill."
+  },
+  "body": {
+    "unsaved": "unsaved",
+    "tokens": "{count, plural, one {# token} other {# tokens}}",
+    "tokensApprox": "~{count, plural, one {# token} other {# tokens}}",
+    "edit": "Edit the skill body",
+    "preview": "Preview the skill body",
+    "editLabel": "Skill body (Markdown)"
   }
 }

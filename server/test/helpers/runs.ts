@@ -32,3 +32,28 @@ export async function waitForPrRuns(
     await new Promise((r) => setTimeout(r, 25));
   }
 }
+
+/**
+ * Wait until a run's trace document exists.
+ *
+ * `waitForPrRuns` is NOT enough before reading `/runs/:id/trace`: the executor
+ * marks the run terminal (`completeAgentRun`) and only then persists the review,
+ * the findings and finally the trace (`saveRunTrace`). A test that polls on run
+ * status can therefore read the trace inside that window and get a 404 — which
+ * surfaces as `prompt_assembly` being undefined, i.e. a confusing assertion
+ * failure that only shows up under parallel load.
+ */
+export async function waitForTrace(
+  db: PgFixture['handle']['db'],
+  runId: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<void> {
+  const { timeoutMs = 10_000 } = opts;
+  const start = Date.now();
+  for (;;) {
+    const rows = await db.select().from(t.runTraces).where(eq(t.runTraces.runId, runId));
+    if (rows.length > 0) return;
+    if (Date.now() - start > timeoutMs) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}

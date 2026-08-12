@@ -7,9 +7,10 @@
     "searchPlaceholder": "Search skills…",
     "loadError": "Could not load skills.",
     "menu": {
-      "fromFile": "Import from file",
+      "fromFile": "Import from file…",
       "fromUrl": "Import from URL",
-      "community": "Search community skills…"
+      "community": "Search community skills…",
+      "create": "Create from scratch"
     },
     "empty": {
       "title": "No skills yet",
@@ -19,7 +20,8 @@
     "selectPrompt": {
       "title": "Select a skill",
       "body": "Pick a skill on the left to preview its body."
-    }
+    },
+    "subtitle": "Reusable review guidance. A skill lives here once and any number of agents can link it."
   },
   "detail": {
     "crumbSkill": "Skill",
@@ -96,6 +98,68 @@
     "untrustedNotice": "This skill came from an untrusted source. Its body is stored as data (delimiter-wrapped) and must be vetted before it is enabled for an agent.",
     "bodyLabel": "Skill body (Markdown)",
     "bodyHint": "Saving a changed body creates a new immutable version.",
-    "version": "v{version}"
+    "version": "v{version}",
+    "panelLabel": "Skill preview",
+    "close": "Close the preview",
+    "descriptionLabel": "Description",
+    "noDescription": "No description",
+    "usedByLabel": "Used by",
+    "usedByLoading": "Checking…",
+    "usedByNone": "No agents yet",
+    "importedNotice": "This skill was imported. Its body is used as instructions, so read it before enabling it for an agent.",
+    "delete": "Delete"
+  },
+  "card": {
+    "noDescription": "No description",
+    "imported": "imported"
+  },
+  "delete": {
+    "confirm": "Delete \"{name}\"? This cannot be undone.",
+    "confirmLinked": "Delete \"{name}\"? It is linked by {agents}, which will lose it."
+  },
+  "editor": {
+    "createTitle": "New skill",
+    "editTitle": "Edit skill",
+    "subtitle": "Guidance appended to the prompt of every agent that links it.",
+    "nameLabel": "Name",
+    "nameHint": "Short and stable — agents reference it by name.",
+    "namePlaceholder": "uncovered-branches",
+    "descriptionLabel": "Description",
+    "descriptionHint": "This is the skill's interface, and it goes into the prompt above the body — write it as a directive (\"Apply when…\", \"Report…\"), because it is what the model uses to decide whether this skill applies to the diff in front of it.",
+    "descriptionPlaceholder": "Apply when… Report…",
+    "typeLabel": "Type",
+    "typeHint": "Groups the library; it does not change how the body is used.",
+    "bodyLabel": "Skill body",
+    "bodyHint": "Markdown. Goes into the prompt verbatim.",
+    "bodyHintVersioned": "Markdown. Saving a changed body mints a new immutable version.",
+    "bodyPlaceholder": "# Rule\n\nWhat a reviewer should flag, and what to cite.",
+    "cancel": "Cancel",
+    "save": "Save skill",
+    "saving": "Saving…",
+    "saveFailed": "Could not save the skill."
+  },
+  "import": {
+    "title": "Import a skill",
+    "subtitle": "Read a .md or .zip skill, review it, then save it like any other.",
+    "fileLabel": "Skill file",
+    "choose": "Choose a file",
+    "pickerHint": "A single .md file, or a .zip containing one.",
+    "noFile": "No file chosen yet.",
+    "reading": "Reading…",
+    "readFailed": "Could not read that file.",
+    "metaName": "Name",
+    "metaDescription": "Description",
+    "metaType": "Type",
+    "metaSource": "Source",
+    "noDescription": "No description",
+    "bodyLabel": "Body",
+    "ignoredTitle": "Ignored members",
+    "ignoredNote": "Only the skill markdown is imported; everything else in the archive is dropped here in the browser.",
+    "executableTag": "executable",
+    "executableCount": "{count, plural, one {# executable file} other {# executable files}} dropped",
+    "trustNotice": "This text becomes instructions for a review agent. Read it before you save.",
+    "footerNote": "Nothing is saved until you confirm in the editor.",
+    "cancel": "Cancel",
+    "accept": "Review and save…"
   }
 }
