@@ -1,0 +1,45 @@
+# Contract mirror guard.
+#
+# `@devdigest/shared` deliberately exists twice — canonical at
+# server/src/vendor/shared/, hand-synced copy at client/src/vendor/shared/ —
+# because the two packages share TypeScript *source* through path aliases, with
+# no build or publish step to tie them together.
+#
+# Nothing else catches drift: both packages type-check happily against their own
+# copy, so a contract change landed on one side only shows up at runtime as a
+# Zod parse failure or a permanently-undefined field. This job is that check.
+#
+# Cheap by design — no install, no build, just a directory diff.
+name: contracts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/src/vendor/shared/**'
+      - 'client/src/vendor/shared/**'
+      - 'scripts/check-contracts.sh'
+      - '.github/workflows/contracts.yml'
+  pull_request:
+    paths:
+      - 'server/src/vendor/shared/**'
+      - 'client/src/vendor/shared/**'
+      - 'scripts/check-contracts.sh'
+      - '.github/workflows/contracts.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mirror:
+    name: shared contract mirror is in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check client mirror matches canonical contracts
+        run: ./scripts/check-contracts.sh

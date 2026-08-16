@@ -1,0 +1,61 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for SkillPreview. */
+export const p = {
+  header: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "16px 16px 12px",
+    borderBottom: "1px solid var(--border)",
+    flexShrink: 0,
+  } satisfies CSSProperties,
+  title: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 15,
+    fontWeight: 700,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  } satisfies CSSProperties,
+  body: { flex: 1, minHeight: 0, overflow: "auto", padding: 16 } satisfies CSSProperties,
+  badges: { display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 } satisfies CSSProperties,
+  trustNotice: {
+    display: "flex",
+    gap: 8,
+    alignItems: "flex-start",
+    padding: "10px 12px",
+    borderRadius: 8,
+    border: "1px solid var(--warn)",
+    background: "var(--warn-bg, transparent)",
+    fontSize: 12.5,
+    lineHeight: 1.5,
+    color: "var(--text-secondary)",
+    marginBottom: 14,
+  } satisfies CSSProperties,
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    color: "var(--text-muted)",
+    margin: "14px 0 6px",
+  } satisfies CSSProperties,
+  description: { fontSize: 13, lineHeight: 1.55, color: "var(--text-secondary)" } satisfies CSSProperties,
+  usedBy: { fontSize: 13, lineHeight: 1.55, color: "var(--text-secondary)" } satisfies CSSProperties,
+  markdown: {
+    fontSize: 13,
+    padding: 12,
+    borderRadius: 8,
+    border: "1px solid var(--border)",
+    background: "var(--bg-base, var(--bg-elevated))",
+  } satisfies CSSProperties,
+  footer: {
+    display: "flex",
+    gap: 8,
+    padding: "12px 16px",
+    borderTop: "1px solid var(--border)",
+    flexShrink: 0,
+  } satisfies CSSProperties,
+} as const;
