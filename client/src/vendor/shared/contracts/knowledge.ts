@@ -131,11 +131,8 @@ export const Skill = z.object({
 });
 export type Skill = z.infer<typeof Skill>;
 
-/**
- * One immutable snapshot of a skill's body, written on every edit that changes
- * `body` (mirrors `agent_versions` for agents). `created_at` is an ISO string —
- * the wire never carries a `Date`.
- */
+// One immutable snapshot of a skill's BODY, minted whenever the body changes.
+// Name/type/description edits do not version — they never reach a prompt.
 export const SkillVersion = z.object({
   skill_id: z.string(),
   version: z.number().int(),
@@ -154,15 +151,91 @@ export const CommunitySkill = z.object({
 export type CommunitySkill = z.infer<typeof CommunitySkill>;
 
 // ---- Conventions ----
+// A house rule the extractor derived from the repo's own source, awaiting the
+// user's review. Tri-state rather than a boolean: rejecting is a decision worth
+// remembering, so a re-scan does not offer the same rule again.
+export const ConventionStatus = z.enum(['pending', 'accepted', 'rejected']);
+export type ConventionStatus = z.infer<typeof ConventionStatus>;
+
 export const ConventionCandidate = z.object({
   id: z.string(),
+  repo_id: z.string(),
+  /** The rule as shown and edited. Starts as the model's wording. */
   rule: z.string(),
-  evidence_path: z.string(),
-  evidence_snippet: z.string(),
-  confidence: z.number().min(0).max(1),
-  accepted: z.boolean(),
+  // Evidence is nullable: a candidate can survive with its citation stripped by
+  // the grounding gate, and the user may clear a snippet while editing.
+  evidence_path: z.string().nullish(),
+  evidence_snippet: z.string().nullish(),
+  confidence: z.number().min(0).max(1).nullish(),
+  status: ConventionStatus,
+  /** True once the user rewrote the rule or snippet — a re-scan must not overwrite it. */
+  edited: z.boolean(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  /** Last scan that still found this rule in the code. */
+  last_seen_at: z.string().nullish(),
 });
 export type ConventionCandidate = z.infer<typeof ConventionCandidate>;
+
+/**
+ * Scan lifecycle. 'idle' is SYNTHESISED for a repo that has never been scanned
+ * and is never persisted. 'degraded' means the scan could not run for a reason
+ * that is not an error — an unindexed repo, no clone on disk — and `reason`
+ * carries which.
+ */
+export const ConventionScanStatus = z.enum([
+  'idle',
+  'queued',
+  'running',
+  'done',
+  'failed',
+  'degraded',
+]);
+export type ConventionScanStatus = z.infer<typeof ConventionScanStatus>;
+
+export const ConventionScan = z.object({
+  repo_id: z.string(),
+  status: ConventionScanStatus,
+  /** not_indexed | no_clone | llm_unavailable | no_candidates | no_repo */
+  reason: z.string().nullish(),
+  /** Files the ranker offered — what the UI reports as "detected from N files". */
+  sample_files: z.number().int(),
+  /** Files actually read and sent to the model. */
+  selected_files: z.number().int(),
+  candidates_found: z.number().int(),
+  new_candidates: z.number().int(),
+  provider: z.string().nullish(),
+  model: z.string().nullish(),
+  started_at: z.string().nullish(),
+  finished_at: z.string().nullish(),
+  error: z.string().nullish(),
+});
+export type ConventionScan = z.infer<typeof ConventionScan>;
+
+/** The conventions screen in one read: the list plus the scan that produced it. */
+export const ConventionsView = z.object({
+  scan: ConventionScan,
+  items: z.array(ConventionCandidate),
+});
+export type ConventionsView = z.infer<typeof ConventionsView>;
+
+/**
+ * An UNSAVED skill composed from the accepted conventions. Read-only: the user
+ * edits every field in the browser and then saves through `POST /skills` like
+ * any other skill, so cancelling leaves nothing behind.
+ */
+export const ConventionSkillDraft = z.object({
+  name: z.string(),
+  description: z.string(),
+  type: SkillType,
+  source: SkillSource,
+  body: z.string(),
+  evidence_files: z.array(z.string()),
+  /** Tokens the body would add to a prompt, counted server-side. */
+  tokens: z.number().int(),
+  convention_count: z.number().int(),
+});
+export type ConventionSkillDraft = z.infer<typeof ConventionSkillDraft>;
 
 // ---- Agents ----
 // 'openrouter' routes through the OpenAI-compatible API (OpenAIProvider with a
@@ -204,25 +277,24 @@ export const Agent = z.object({
 });
 export type Agent = z.infer<typeof Agent>;
 
-/**
- * One row of `agent_skills`. Linking and enabling are DELIBERATELY separate:
- * `enabled: false` keeps the skill (and its position) attached to the agent but
- * omits its body from the assembled prompt, which is what makes the on/off
- * comparison observable in the run trace. Unlinking loses the order.
- */
 export const AgentSkillLink = z.object({
   agent_id: z.string(),
   skill_id: z.string(),
   order: z.number().int(),
-  enabled: z.boolean(),
 });
 export type AgentSkillLink = z.infer<typeof AgentSkillLink>;
 
-/**
- * A link with its skill inlined — what `GET /agents/:id/skills` serves, so the
- * Skills tab renders names/types/bodies without an N+1 of `/skills/:id`.
- */
-export const AgentSkillDetail = AgentSkillLink.extend({ skill: Skill });
+// A link with its skill inlined, plus the per-agent switch. The skills editor
+// renders a whole agent's ordered list from one response, so inlining the skill
+// saves an N+1 fetch; `enabled` here is the PER-AGENT switch, independent of
+// `Skill.enabled`, which is the library-wide kill switch.
+export const AgentSkillDetail = z.object({
+  agent_id: z.string(),
+  skill_id: z.string(),
+  order: z.number().int(),
+  enabled: z.boolean(),
+  skill: Skill,
+});
 export type AgentSkillDetail = z.infer<typeof AgentSkillDetail>;
 
 // The immutable config snapshot captured in `agent_versions` whenever an agent's

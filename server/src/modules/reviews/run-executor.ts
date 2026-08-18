@@ -1,14 +1,20 @@
+import { randomUUID } from 'node:crypto';
 import type { Container } from '../../platform/container.js';
-import type { Provider, Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
+import type { Provider, Review, RunTrace, ToolCall, UnifiedDiff } from '@devdigest/shared';
 import { reviewPullRequest, countBlockers } from '@devdigest/reviewer-core';
 import { RunLogger } from '../../platform/run-logger.js';
+import { logPromptAssembly } from '../../platform/prompt-log.js';
 import * as schema from '../../db/schema.js';
 import type { AgentRow } from '../../db/rows.js';
 import type { ReviewRepository, FindingRow, PullRow, ReviewRow } from './repository.js';
 import { REVIEW_STRATEGY } from './constants.js';
 import { taskLine } from './helpers.js';
-import { skillPromptBlock, toSkillDto } from '../_shared/skills.js';
 import { loadDiff } from './diff-loader.js';
+import { deriveIntent } from './intent-pipeline.js';
+import { renderIntentBlock } from './intent-sources.js';
+// `skills` is another module's table; the row → DTO mapper and the block renderer
+// are shared through `_shared/` because `reviews` legitimately reads a skill row.
+import { skillPromptBlock, toSkillDto } from '../_shared/skills.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
 export class RunCancelledError extends Error {
@@ -18,13 +24,13 @@ export class RunCancelledError extends Error {
   }
 }
 
-/**
- * Minimal structured logger (pino-compatible: (obj, msg)) for runtime logs.
- * Canonical definition moved to `platform/logger.ts` once a second module
- * needed it; re-exported here so existing importers keep working.
- */
-import type { Logger } from '../../platform/logger.js';
-export type { Logger };
+/** Minimal structured logger (pino-compatible: (obj, msg)) for runtime logs. */
+export type Logger = {
+  info: (obj: unknown, msg?: string) => void;
+  warn: (obj: unknown, msg?: string) => void;
+  error: (obj: unknown, msg?: string) => void;
+  debug: (obj: unknown, msg?: string) => void;
+};
 
 // A reduced "Review per file" — same schema as Review (the model returns a small
 // Review per file; we merge findings + take the worst verdict / mean score).
@@ -50,8 +56,10 @@ export class ReviewRunExecutor {
 
   /**
    * Background execution of the queued agent runs (NOT awaited by the route).
-   * Loads the diff + intent once, then map-reduces each agent, streaming events
-   * over the runBus and persisting each review. Per-agent failures are isolated.
+   * Loads the diff, then derives the PR's intent (L03) — both ONCE, shared by
+   * every queued agent — then runs each agent, streaming events over the runBus
+   * and persisting each review. Per-agent failures are isolated. A failed intent
+   * derivation is not a failure: the review runs without it.
    */
   async executeRuns(
     workspaceId: string,
@@ -63,11 +71,15 @@ export class ReviewRunExecutor {
     // ONE logger fanned out over every queued run: shared pre-work (diff +
     // intent) is streamed into each target agent's Live Log and persisted into
     // each run's trace. Per-agent work below narrows it to a single run.
+    // One id for this whole fan-out: the diff load, the intent derivation and
+    // every agent's review call all log under it, so a single PR review is
+    // greppable as one operation across N runs.
+    const correlationId = randomUUID();
     const runLog = new RunLogger(
       this.container.runBus,
       jobs.map((j) => j.runId),
       logger,
-      { prId: pull.id },
+      { prId: pull.id, correlationId },
     );
 
     // Pre-work failure (e.g. diff load) fails EVERY queued run. The error was
@@ -106,6 +118,34 @@ export class ReviewRunExecutor {
     }
     runLog.info(`Diff ready — ${diff.files.length} changed file(s); starting ${jobs.length} agent run(s)`);
 
+    // L03 — the intent layer. Derived ONCE for all queued agents (the block is
+    // identical for each), awaited but NEVER fatal: `deriveIntent` swallows every
+    // failure and returns no record, and the omitted prompt key then makes the
+    // assembled prompt byte-identical to the pre-L03 one. Contrast the diff load
+    // above, which legitimately fails every run.
+    const intentStart = Date.now();
+    const intent = await runLog.step(
+      'Deriving PR intent',
+      () =>
+        deriveIntent(this.container, this.repo, {
+          workspaceId,
+          pull,
+          repo,
+          diff,
+          runLog,
+          correlationId,
+          isCancelled: () => jobs.every((j) => this.container.runBus.isCancelled(j.runId)),
+        }),
+      { kind: 'tool' },
+    );
+    const intentBlock = intent.record ? renderIntentBlock(intent.record) : undefined;
+    const intentCall = {
+      tool: 'derive_intent',
+      args: intent.record?.model ?? 'none',
+      meta: intent.cached ? 'cached' : (intent.reason ?? 'ok'),
+      ms: Date.now() - intentStart,
+    };
+
     for (const { agent, runId } of jobs) {
       const agentStart = Date.now();
       logger?.info(
@@ -113,7 +153,11 @@ export class ReviewRunExecutor {
         `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
       );
       try {
-        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog);
+        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog, {
+          block: intentBlock,
+          call: intentCall,
+          correlationId,
+        });
         logger?.info(
           {
             runId,
@@ -145,12 +189,17 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     runId: string,
     parentLog: RunLogger,
+    // L03 — the shared intent derivation: the rendered prompt block (undefined
+    // when derivation was skipped or failed) plus its tool_calls entry, so every
+    // run's trace records that the call happened and what it cost in time.
+    intent: { block?: string; call: ToolCall; correlationId: string },
   ): Promise<RunOutcome> {
     const start = Date.now();
     // Narrow the fanned-out pre-work logger to THIS run; the shared diff/intent
     // events are already in this run's buffer, so the persisted trace below
     // (built from the buffer) includes them too.
     const runLog = parentLog.forRun(runId, { agent: agent.name });
+    const verbose = this.container.config.promptLogVerbose;
 
     runLog.info(`Starting review with agent "${agent.name}" (${agent.provider}/${agent.model})`);
 
@@ -183,14 +232,11 @@ export class ReviewRunExecutor {
       const repoMap = repoIntelOn ? await this.buildRepoMapDigest(pull.repoId, runLog) : undefined;
       const rankNote = repoIntelOn ? await this.buildRankNote(pull.repoId, diff, runLog) : '';
 
-      // Skills — the agent's linked guidance blocks, in the order set in the
-      // Skills tab. A skill contributes only when the LINK is enabled for this
-      // agent AND the skill itself is globally enabled; either switch off and
-      // its block simply isn't there, which is what makes the with/without
-      // comparison visible in the trace's prompt-assembly section.
-      const skills = await this.buildSkillBlocks(agent.id, runLog);
-
       const task = taskLine(pull) + rankNote;
+
+      // L02 — the agent's linked skills, resolved to ordered prompt blocks. The
+      // guidance layer is best-effort: see buildSkillBlocks.
+      const skills = await this.buildSkillBlocks(agent.id, runLog);
 
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
@@ -204,18 +250,26 @@ export class ReviewRunExecutor {
         // Per-agent review strategy (configured in the Agent editor); falls back
         // to the studio default. single-pass = whole diff in one call.
         strategy: agent.strategy ?? REVIEW_STRATEGY,
-        // Linked, enabled skills. Omitted when empty so an agent with no skills
-        // produces byte-identical prompt to the pre-skills baseline — that
-        // equality is what the control experiment measures against.
-        ...(skills.length > 0 ? { skills } : {}),
         // T1.3 — pass the callers digest only when we built one. assemblePrompt
         // omits the section when this is empty/undefined.
         ...(callersDigest ? { callers: callersDigest } : {}),
         // T3 — repo skeleton, same omit-when-empty contract.
         ...(repoMap ? { repoMap } : {}),
+        // L02 — skills. The key is OMITTED when no skill is active, so the user
+        // message is byte-identical to the pre-skills baseline; that equality is
+        // what the with/without comparison measures against. An empty array
+        // would be equivalent today but states the wrong intent.
+        ...(skills.length > 0 ? { skills } : {}),
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
+        // L03 — derived intent. OMITTED (not empty) when there is none, so the
+        // prompt is byte-identical to the pre-L03 baseline; that equality is what
+        // a with/without comparison measures against.
+        ...(intent.block ? { intent: intent.block } : {}),
+        // Per-section token counts are only worth their CPU when someone is
+        // actually reading them, so the counter is injected in verbose mode only.
+        ...(verbose ? { countTokens: (text: string) => this.container.tokenizer.count(text) } : {}),
         task,
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),
@@ -223,6 +277,23 @@ export class ReviewRunExecutor {
           if (this.container.runBus.isCancelled(runId)) throw new RunCancelledError();
         },
       });
+      // What went INTO the call: section names, provenance and sizes — never
+      // content. See platform/prompt-log.ts for why that is a type-level
+      // guarantee rather than a redaction step.
+      logPromptAssembly(
+        runLog.stdout,
+        {
+          correlationId: intent.correlationId,
+          stage: 'review',
+          provider: agent.provider,
+          model: agent.model,
+          runId,
+          prId: pull.id,
+        },
+        outcome.sections,
+        { verbose },
+      );
+
       const { tokensIn, tokensOut, costUsd, grounding } = outcome;
 
       const keptFindings = outcome.review.findings;
@@ -284,12 +355,15 @@ export class ReviewRunExecutor {
           grounding,
         },
         prompt_assembly: outcome.assembly,
-        tool_calls: outcome.chunks.map((c) => ({
-          tool: 'review_file',
-          args: c.label,
-          meta: outcome.mode,
-          ms: Math.round(durationMs / Math.max(outcome.chunks.length, 1)),
-        })),
+        tool_calls: [
+          intent.call,
+          ...outcome.chunks.map((c) => ({
+            tool: 'review_file',
+            args: c.label,
+            meta: outcome.mode,
+            ms: Math.round(durationMs / Math.max(outcome.chunks.length, 1)),
+          })),
+        ],
         raw_output: outcome.raw,
         memory_pulled: [],
         specs_read: [],
@@ -332,35 +406,42 @@ export class ReviewRunExecutor {
   /**
    * Resolve the agent's linked skills into ordered prompt blocks.
    *
-   * Two independent switches gate a skill, and BOTH must be on: the per-agent
-   * `agent_skills.enabled` (the checkbox in the Skills tab) and the skill's own
-   * global `skills.enabled`. A skipped skill is logged by name so the Live Log
-   * says *why* a block the user expected is missing — silently dropping it is
-   * indistinguishable from the feature being broken.
+   * TWO switches gate a block and both must be true: `agent_skills.enabled`
+   * (this agent uses this skill) and `skills.enabled` (the library-wide kill
+   * switch). Order is the link's, so the Skills tab's arrows decide the order the
+   * blocks are concatenated in.
    *
-   * Never throws: a skills lookup failing must degrade to an unskilled review,
-   * not fail the run.
+   * Skipped skills are logged BY NAME. A block that is missing because the user
+   * switched it off and a block that is missing because this wiring broke look
+   * identical in the assembled prompt — the log line is the only thing that
+   * tells them apart.
+   *
+   * Never throws. Failing a whole review over the guidance layer is worse than
+   * reviewing without it, so a lookup failure degrades to an unskilled run and
+   * says so in the log.
    */
   private async buildSkillBlocks(agentId: string, runLog: RunLogger): Promise<string[]> {
     let links;
     try {
       links = await this.agents.linkedSkills(agentId);
     } catch (err) {
-      runLog.info(`skills: lookup failed, running without them — ${(err as Error).message}`);
+      runLog.info(`skills: lookup failed, reviewing without them — ${(err as Error).message}`);
       return [];
     }
     if (links.length === 0) return [];
 
     const active = links.filter((l) => l.enabled && l.skill.enabled);
     const skipped = links.filter((l) => !(l.enabled && l.skill.enabled));
-    if (skipped.length > 0) {
-      runLog.info(`Skills disabled, not in prompt: ${skipped.map((l) => l.skill.name).join(', ')}`);
-    }
-    if (active.length === 0) return [];
 
-    runLog.info(
-      `Skills attached (${active.length}): ${active.map((l) => l.skill.name).join(', ')}`,
-    );
+    if (active.length > 0) {
+      const names = active.map((l) => l.skill.name).join(', ');
+      runLog.info(`Skills attached (${active.length}): ${names}`);
+    }
+    if (skipped.length > 0) {
+      const names = skipped.map((l) => l.skill.name).join(', ');
+      runLog.info(`Skills disabled, not in prompt: ${names}`);
+    }
+
     return active.map((l) => skillPromptBlock(toSkillDto(l.skill)));
   }
 

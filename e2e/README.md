@@ -100,3 +100,6 @@ a CI artifact by `.github/workflows/e2e-web.yml`).
 | `05-pr-diff` | PR #482 → Files changed tab → seeded file renders in the diff viewer |
 | `06-onboarding` | `/onboarding` → add-repository form renders (no submit) |
 | `07-settings` | `/settings/api-keys` + `/settings/models` → section titles render |
+| `08-pr-list-findings` | PR list → findings counters → findings modal over the seeded review |
+| `09-skills` | skills library + preview; an agent's Skills tab renders the seeded links |
+| `10-conventions` | Conventions screen → seeded insights, evidence, confidences + the scan summary |

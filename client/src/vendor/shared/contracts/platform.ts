@@ -51,9 +51,12 @@ export const FEATURE_MODELS: FeatureModelDef[] = [
   {
     id: 'review_intent',
     label: 'PR Review · Intent',
-    description: 'Derives a PR’s intent and scope before review.',
-    defaultProvider: 'openai',
-    defaultModel: 'gpt-4.1',
+    // Deliberately a CHEAP model: this runs once before every review, ahead of
+    // the (expensive) reviewer. Must support structured outputs — a `:free`
+    // slug is NOT a safe substitute (see root insights.md 2026-08-11).
+    description: 'Classifies a PR’s intent and scope before review (cheap model).',
+    defaultProvider: 'openrouter',
+    defaultModel: 'deepseek/deepseek-v4-flash',
   },
   {
     id: 'risk_brief',

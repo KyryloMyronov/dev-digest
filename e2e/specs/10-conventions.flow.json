@@ -1,0 +1,26 @@
+{
+  "name": "Conventions screen renders the seeded insights and their scan summary",
+  "description": "Covers the risk class the RTL suite structurally cannot: this screen reads the REAL API across a process boundary, and every unit test for it stubs `fetch`. GET /repos/:id/conventions merges the `conventions` rows with the `convention_scan_state` row into ONE response, so the heading's sample count and the card list arrive from a join the client never performs — that join could return the wrong shape and every client test would still pass. Fixtures come from server/src/db/seed-conventions.ts (three PENDING conventions on acme/payments-api, plus a scan row reporting 84 sample files) — change that seed and this flow changes with it. Strictly read-only: it opens, navigates and asserts, mutating nothing and never triggering a model call. The accept → compose → save chain is deliberately NOT here; it needs a PATCH plus a modal, and `find role button --name Accept` is ambiguous with three identical Accept buttons on screen. That chain is covered where it can be asserted precisely: server/test/conventions.it.test.ts drives it over a real Postgres (including the POST /skills seam that records source='extracted' and evidence_files), and ConventionsView.test.tsx drives it over the DOM. Note the assertions avoid the toolbar's 'Deselect all' and the sidebar's 'SKILLS LAB' group heading: `wait --text` compares RENDERED text, and an uppercase-transformed label only ever matches uppercased.",
+  "steps": [
+    { "cmd": ["open", "{BASE}/"], "label": "load the app root so the active repo resolves" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "root redirects into the seeded repo" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "GET /repos settles" },
+
+    { "cmd": ["find", "text", "Conventions", "click"], "label": "navigate via the Skills Lab nav item" },
+    { "cmd": ["wait", "--url", "/conventions"], "label": "conventions route reached" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "GET /repos/:id/conventions settles" },
+
+    { "cmd": ["wait", "--text", "payments-api"], "label": "the heading names the repo the insights belong to" },
+    { "cmd": ["wait", "--text", "Detected from 84 sample files"], "label": "the scan row joined into the same response" },
+    { "cmd": ["wait", "--text", "0 of 3 accepted"], "label": "all three seeded rows start pending" },
+
+    { "cmd": ["wait", "--text", "Always use async/await instead of .then() chains."], "label": "the highest-confidence convention renders first" },
+    { "cmd": ["wait", "--text", "src/api/users.ts"], "label": "its evidence path renders" },
+    { "cmd": ["wait", "--text", "const user = await db.users.find(id);"], "label": "its evidence snippet renders" },
+    { "cmd": ["wait", "--text", "91%"], "label": "confidence renders as a percentage" },
+
+    { "cmd": ["wait", "--text", "Redis access goes through the src/lib/redis.ts singleton."], "label": "a second seeded convention renders" },
+    { "cmd": ["wait", "--text", "All public route handlers return a typed Result<T, ApiError>."], "label": "and the third — the whole list, not just the head" },
+    { "cmd": ["wait", "--text", "78%"], "label": "the lowest confidence renders too (amber, below the 85 threshold)" }
+  ]
+}

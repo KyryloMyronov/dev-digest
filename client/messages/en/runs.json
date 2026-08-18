@@ -44,6 +44,7 @@
     },
     "prompt": {
       "system": "System",
+      "intent": "PR intent — derived (dynamic)",
       "skills": "Skills (dynamic)",
       "memory": "Memory (dynamic)",
       "repoMap": "Repo skeleton — repo-intel (dynamic)",
@@ -68,7 +69,7 @@
     "running": "running",
     "completed": "completed",
     "copyRawOutput": "Copy raw output",
-  "copied": "Copied!",
+    "copied": "Copied!",
     "tracePending": "Trace is written when the run completes — see the Live log tab.",
     "loadingTrace": "Loading trace…",
     "noTrace": "No trace available yet."

@@ -26,6 +26,12 @@ const EnvSchema = z.object({
   // Note: even when on, sections only populate once the repo is indexed; an
   // unindexed repo degrades gracefully. Per-agent override: agents.repo_intel.
   REPO_INTEL_ENABLED: z.string().optional(),
+  // Per-section prompt logging (name / source / size, NEVER content). The
+  // summary line is always emitted; this adds the per-section breakdown and
+  // token counts. LOCAL ONLY — `loadConfig` refuses to honour it under
+  // NODE_ENV=production, because prompt shape is operational detail that has no
+  // business in a production log stream.
+  PROMPT_LOG_VERBOSE: z.string().optional(),
   API_PORT: z.coerce.number().int().default(3001),
   WEB_PORT: z.coerce.number().int().default(3000),
   DEVDIGEST_CLONE_DIR: z.string().optional(),
@@ -59,6 +65,18 @@ export type AppConfig = {
    * EXACTLY like the ripgrep-only baseline.
    */
   repoIntelEnabled: boolean;
+  /**
+   * Per-section prompt logging. EFFECTIVE value: true only when the flag is set
+   * AND this is not production. Never logs prompt content either way — see
+   * `platform/prompt-log.ts`.
+   */
+  promptLogVerbose: boolean;
+  /**
+   * True when the flag was asked for but refused because this is production.
+   * Surfaced as a warning at boot: a flag that silently does nothing is the
+   * failure mode that costs an hour of "why is there no output".
+   */
+  promptLogVerboseSuppressed: boolean;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -77,5 +95,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     webOrigin: `http://localhost:${parsed.WEB_PORT}`,
     embeddingsEnabled: parsed.EMBEDDINGS_ENABLED === 'true',
     repoIntelEnabled: parsed.REPO_INTEL_ENABLED !== 'false',
+    promptLogVerbose:
+      parsed.PROMPT_LOG_VERBOSE === 'true' && parsed.NODE_ENV !== 'production',
+    promptLogVerboseSuppressed:
+      parsed.PROMPT_LOG_VERBOSE === 'true' && parsed.NODE_ENV === 'production',
   };
 }

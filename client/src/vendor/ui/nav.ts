@@ -18,6 +18,15 @@ export interface NavGroup {
   items: NavItemDef[];
 }
 
+/* Only routes that EXIST may be listed: NavItem renders a bare <Link> with no
+   existence guard, so a row for a page that has not been built yet is a 404 the
+   sidebar invites you to click. The design's GLOBAL group (Memory, Multi-Agent
+   Review, Agent Performance, CI Runs) and the Eval Dashboard / Project Context
+   rows are deliberately withheld until their routes land.
+
+   `label` must stay byte-identical to the matching `shell.nav.<key>` message:
+   the sidebar renders this literal while the command palette renders the
+   translation, and the two surfaces would otherwise disagree. */
 export const NAV: NavGroup[] = [
   {
     section: "WORKSPACE",
@@ -30,6 +39,7 @@ export const NAV: NavGroup[] = [
     items: [
       { key: "skills", label: "Skills", icon: "Sparkles", href: "/skills", gKey: "s" },
       { key: "agents", label: "Agents", icon: "Cpu", href: "/agents", gKey: "a" },
+      { key: "conventions", label: "Conventions", icon: "ListChecks", href: "/repos/:repoId/conventions", gKey: "c" },
     ],
   },
 ];
@@ -60,6 +70,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { keys: "g p", label: "Go to Pull Requests", group: "Navigation" },
   { keys: "g s", label: "Go to Skills", group: "Navigation" },
   { keys: "g a", label: "Go to Agents", group: "Navigation" },
+  { keys: "g c", label: "Go to Conventions", group: "Navigation" },
   { keys: "j / k", label: "Next / previous finding", group: "Findings" },
   { keys: "a", label: "Accept finding", group: "Findings" },
   { keys: "d", label: "Dismiss finding", group: "Findings" },

@@ -18,57 +18,279 @@ Session Notes · Open Questions. Find one with
 
 ---
 
-## 2026-08-08 — a product skill must NOT be wrapped in `<untrusted>`, and that is the point
+## 2026-08-17 — `check-contracts.sh` guards ONE of the two client mirrors; the feature-model registry is the other
+
+**Rubric:** Codebase Patterns
+**Symptom:** a one-line change to a `FEATURE_MODELS` default in
+`server/src/vendor/shared/contracts/platform.ts`, synced with
+`./scripts/check-contracts.sh --fix`, verified with a clean
+`check-contracts: OK`, and typechecked in both packages — and the Settings screen
+would still have offered the OLD default while the server used the new one. No
+script, no typechecker and no test says a word.
+**Cause:** the client cannot import a runtime VALUE from `@devdigest/shared` (it
+breaks only the webpack build — see `client/insights.md` 2026-08-11), and
+`FEATURE_MODELS` is a value, not a type. So `client/src/lib/feature-models.ts`
+is a **second, hand-maintained copy** of the registry, and it lives *outside*
+`client/src/vendor/`, which is the only tree `check-contracts.sh` rsyncs. The
+guard's green checkmark is therefore true and irrelevant: it compared the two
+`vendor/shared` trees, which did match.
+**Fix:** treat a `FEATURE_MODELS` edit as **two** files in two packages, and diff
+them by hand — the guard cannot help:
+
+```sh
+# rc=0 ⇒ in sync. Compares only the id/provider/model triples, normalising the
+# quote style (the server file uses ', the client file uses ") and ignoring the
+# comments and descriptions, which legitimately differ.
+diff <(grep -oE "(id|defaultProvider|defaultModel): *['\"][^'\"]+" \
+         server/src/vendor/shared/contracts/platform.ts | tr -d "'\"") \
+     <(grep -oE "(id|defaultProvider|defaultModel): *['\"][^'\"]+" \
+         client/src/lib/feature-models.ts | tr -d "'\"")
+```
+
+Do **not** compare the two blocks with `grep -A<n>` — the server copy carries
+comments the client copy does not, so the window slides and the diff is noise.
+The same
+trap applies to any other exported *value* the studio needs — a const array, an
+enum-like object, a default table. Types are safe; values are a manual mirror
+with no guard behind them. When adding one, put a pointer in both files.
+
+## 2026-08-17 — there is no ESLint here; `lint:arch` is the only enforced architecture rule, and only on the server
+
+**Rubric:** Codebase Patterns
+**Symptom:** reviewing a client change against `client/AGENTS.md`, the natural
+assumption is that *something* mechanical enforces at least the cheap rules — an
+inline `queryKey` literal, a `fetch` inside a component, a hand-rolled primitive
+that `src/vendor/ui` already has. Nothing does. `cd client && pnpm lint` is not a
+script that exists, and its absence looks like an oversight rather than the whole
+picture.
+**Cause:** the repository has no ESLint at all — no `.eslintrc*` and no
+`eslint.config.*` anywhere outside `node_modules`, and `client/package.json:5-11`
+declares only `dev|build|start|typecheck|test`. The single architectural
+enforcement in the repo is `server/package.json:11` →
+`lint:arch` = `depcruise src --config .dependency-cruiser.cjs`: eleven named
+rules (`no-drizzle-outside-persistence`, `no-db-schema-above-repository`,
+`no-vendor-sdks-outside-adapters`, `no-fastify-below-routes`,
+`no-cross-module-internals`, `no-module-imports-from-platform`,
+`no-server-imports-from-shared`, `no-core-imports-from-server`, `no-circular`,
+`not-to-dev-dep`, `no-deprecated-core` — `server/.dependency-cruiser.cjs:33-193`)
+scanning `server/src` **only**.
+**Fix:** treat the two halves as different jobs. On the server, run
+`cd server && pnpm lint:arch` first and then never restate what it proved — quote
+its result instead, or you spend the review re-deriving a rule that already
+passed. On the client, every rule in `client/AGENTS.md` is prose held up by a
+reader: an inline `queryKey`, `'use server'`, a locally-declared type instead of
+`@devdigest/shared`, an edit to `src/vendor/shared/` alone — all of them compile,
+all of them pass `pnpm test`, and nothing but review will catch them. One
+server-side corollary: `.dependency-cruiser.cjs:23-26` records that "there is no
+legacy allow-list left", so a **new** `pathNot` exemption is a regression of that
+position and is a human decision, not a config tweak.
+
+## 2026-08-17 — a subagent's startup git-status is a session-start snapshot, not the current tree
 
 **Rubric:** What Doesn't Work
-**Symptom:** the obvious hardening for the skills feature — send an imported
-skill's body through `wrapUntrusted()` like the diff and the PR description —
-produces a skill that is attached, visible in the run trace's prompt-assembly
-section, counted in the token total, and has **zero** effect on the review. It
-looks completely wired. Nothing errors.
-**Cause:** `INJECTION_GUARD` (`reviewer-core/src/prompt.ts:16`) is appended to
-every agent's system message and states that everything inside
-`<untrusted>…</untrusted>` is DATA, never instructions, in any language. A skill
-*is* instructions — that is its entire purpose — so the guard and the wrapper
-cancel it out. The two mechanisms are not composable: one exists to neuter
-instructions, the other to deliver them.
-**Fix:** skill bodies go into `## Skills / rules` as instructions,
-**undelimited**. Containment is replaced by provenance + consent:
-`skillPromptBlock()` (`server/src/modules/_shared/skills.ts`) heads each block
-with the skill's name, type, version and — for `source` in
-`{imported_url, community}` — a literal `source: imported` marker, and the
-import flow parses in the browser, previews the full body, and writes nothing
-until the user accepts (`client/src/lib/skill-import.ts`). Two tests pin this so
-the "hardening" cannot be reintroduced silently:
-`server/test/skills-helpers.test.ts` ("does NOT wrap the body in `<untrusted>`")
-and `server/test/skills-prompt.it.test.ts`. Rationale for readers:
-`docs/agent-prompts/README.md` and `docs/skills/README.md`. The general lesson:
-before reusing an injection defence on a new input, check whether that input is
-supposed to *be* an instruction — if it is, the defence is a silent feature kill,
-not a hardening.
+**Symptom:** a `plan-verifier` probe stated the working tree in its final message
+— `A .claude/agents/researcher.md`, ` M server/src/modules/index.ts` — confidently
+and in passing, having made **zero tool calls**. Four files that existed on disk
+were missing from that picture and three more had been staged since. Nothing in
+the output marked it as second-hand.
+**Cause:** the harness injects a git-status snapshot into every subagent's startup
+context, taken when the **session** began, and never refreshes it. An agent that
+reads it as "the current state" is quoting inherited narrative, and inherited
+narrative is indistinguishable from a checked fact once it is in the report.
+**Fix:** any agent whose verdict depends on the tree must establish it itself —
+`git status --porcelain`, `git diff`, `git diff --cached` — and treat the snapshot
+as a hint, never as evidence. This is now a hard constraint in
+`.claude/agents/plan-verifier.md` and `.claude/agents/architecture-reviewer.md`;
+in particular, never mark a plan item `Not implemented` off a snapshot without
+opening the path. The mirror-image trap shows up in long parallel runs: both
+reviewers noticed files changing *mid-run* (a concurrent `test-writer` and
+`doc-writer`), and the correct response is to record the shift in
+`Coverage` / `Evidence log` rather than silently review a moving target. When
+several write-agents run at once, expect `git status` to include work that is not
+the one under review, and attribute it explicitly.
 
-## 2026-08-08 — never infer contract drift from *which side* of the mirror changed
+## 2026-08-17 — nothing in CI or vitest looks at `.claude/**`, and `wc -l` lies about the last line
+
+**Rubric:** Tool & Library Notes
+**Symptom:** five new agent definition files plus a rewritten
+`.claude/agents/README.md` landed without a single check firing anywhere — no
+workflow, no suite, no typechecker. Separately, a citation checker over those
+files reported two *correct* `path:line` references as OUT OF RANGE.
+**Cause:** two unrelated facts. (1) All six workflows in `.github/workflows/` are
+path-filtered per package and none of them matches `.claude/**`;
+`server/vitest.config.ts:14` includes only `test/**` and `src/**`, and
+`client/vitest.config.ts:18` only `src/**`. A malformed agent frontmatter is
+therefore invisible until somebody actually runs that agent. (2) `wc -l` counts
+newline characters, not lines, so a file without a trailing newline reports one
+fewer than it has — and a citation to that final line then fails a
+`line <= wc -l` bound. `server/docs/README.md:31` and `client/docs/README.md:29`
+are both exactly that case (`_(none yet)_` on the last line).
+**Fix:** verify `.claude/**` by hand and assume no safety net. The checks worth
+running: frontmatter parses and is closed; every key is in the set the existing
+agents use (`name`, `description`, `tools`, `disallowedTools`, `model`, `effort`,
+`permissionMode`, `color`); every tool name is real — a typo'd name is a silently
+**empty** rule, so a denylist entry that does not resolve forbids nothing; `name`
+equals the filename stem; every relative link passes `test -e`; every `path:line`
+opens to what it claims. For that last check count lines with `grep -c ''` or
+`awk 'END{print NR}'` (both count the trailing partial line) — verified: on a
+3-line file with no final newline, `wc -l` says 2 while both alternatives say 3.
+
+## 2026-08-12 — the skills' source scanner is now one file, and `<` in `PAIRS` was provably safe
+
+**Rubric:** What Works
+**Supersedes:** 2026-08-12 — angle-bracket slicing is safe only when anchored at a verified generic
+**Symptom:** the two entries below describe the scanner as living in two places —
+`.claude/skills/api-breaking-changes/surface.mjs` (no `<` in `PAIRS`) and
+`.claude/skills/response-schema/lib.mjs` (with `<`). Both pointers are now stale:
+`lib.mjs` is 19 lines of severity helpers and `surface.mjs` has no scanner at all.
+An agent following either would go looking for a pairing table that is not there,
+and could "restore" a second copy.
+**Cause:** the copies were consolidated into
+`.claude/skills/source-scan/scan.mjs`, the single owner of git-ref I/O
+(`WORKTREE`/`listFiles`/`readAt`) and the scanner (`sliceBalanced`,
+`stripComments`, `splitTopLevel`, `readExpression`, `lineAt`, `stringLiteral`).
+`api-breaking-changes`, `api-response-changes` and `response-schema` all import
+it; no skill reaches into another skill's internals any more.
+
+The unification was safe for a reason worth keeping, because it looks dangerous
+and is not: **`sliceBalanced` moves depth only on `c === open` or `c === close`,
+where `open` is the character at the index you pass.** So adding `'<': '>'` to
+`PAIRS` changes behaviour *only* for slices anchored directly at a `<`. Inside a
+`(`, `{` or `[` slice, `<` was already an ordinary character in both copies and
+`a < 5 && b > 3` could never unbalance anything. The `<`-aware table is therefore
+a strict superset, which is why adopting it produced **byte-identical output**
+from all six surface and check entry points across the three skills.
+**Fix:** the call-site rule from the superseded entry still holds and now lives at
+the top of `scan.mjs` and under "The angle-bracket rule" in
+`.claude/skills/source-scan/SKILL.md` — anchor at a `<` only where a lookahead
+has proved it opens a generic; for a fully wrapped generic use
+`^Promise\s*<([\s\S]*)>$` instead of slicing. When changing the scanner, verify
+with fixed invariants, not by reading a report — a scanner bug in a differential
+tool shows up as a *missing* finding, not a crash:
+
+```sh
+node .claude/skills/api-breaking-changes/surface.mjs | grep -c '"method"'      # 101
+node .claude/skills/response-schema/responses.mjs    | grep -c '"typeText"'    # 47
+node .claude/skills/api-response-changes/response-surface.mjs --summary | wc -l # 53
+```
+
+Do not add a `legacy`/`strict` flag to `sliceBalanced` to restore an old
+behaviour — two behaviours behind one name is how the copies drifted. Two callers
+needing different semantics need two named functions. `pr-self-review/lib.mjs`
+still keeps its own `git`/`matchesAny` (it is a changeset collector with no
+scanner); that overlap is known and out of scope, not an oversight.
+
+## 2026-08-12 — angle-bracket slicing is safe only when anchored at a verified generic
+
+**Rubric:** What Works
+**Supersedes:** 2026-08-12 — `sliceBalanced` in the skills' source scanner does not pair angle brackets
+**Symptom:** none yet — latent. That entry's "adding `<`/`>` to `PAIRS` is not
+the fix" reads as absolute, and `.claude/skills/response-schema/lib.mjs` does
+exactly that. A reader reconciling the two could remove working code, or copy
+the `PAIRS` change into a general-purpose scanner and hit the original bug.
+**Cause:** the hazard is the *call site*, not the pairing table. `<` is
+ambiguous only where it might be a comparison, JSX, or an arrow — that is,
+where you scan arbitrary source. `extractCallerBindings` in
+`.claude/skills/response-schema/responses.mjs` never scans arbitrary source: it
+matches `/\bapi\s*\.\s*(get|post|…)\s*(?=<)/` and slices from the `<` that the
+lookahead already proved opens a generic. Inside a type there is no comparison
+operator and no JSX, so the only residual hazard is `=>`, which that
+`sliceBalanced` steps over explicitly.
+**Fix:** keep the original entry's rule as the default — do not reach for
+`sliceBalanced` to pull a generic out of a service signature; `parseTypeExpr`'s
+greedy match to the final `>` is right there. The one sanctioned exception is a
+slice anchored at a position a lookahead has already proved is a generic open,
+with `=>` skipped. Verified against nested generics (`Map<string, Set<number>>`),
+an arrow inside a type literal (`Array<{ cb: (x: number) => boolean }>`), and a
+bare `a < 5 && b > 3` (never matched); all 47 bindings extract correctly. If you
+change that regex so it no longer proves the `<`, the exception is void — check
+with `node .claude/skills/response-schema/responses.mjs | grep -c '"typeText"'`,
+which must stay at 47.
+
+## 2026-08-12 — `sliceBalanced` in the skills' source scanner does not pair angle brackets
 
 **Rubric:** What Doesn't Work
-**Symptom:** a freshly written check reported five critical findings on branch
-`Lab2` — "edits the client mirror without the canonical copy" for
-`client/src/vendor/shared/adapters.ts` and four `contracts/*.ts`. Meanwhile
-`./scripts/check-contracts.sh` exited 0 and `diff -r` on the two trees was
-empty. Both were telling the truth.
-**Cause:** the check inferred drift from the *diff shape* — client paths
-changed, matching server paths did not, therefore someone hand-edited the
-mirror. That inference is unsound. The branch had legitimately run
-`check-contracts.sh --fix` to sync a mirror that was **already stale on
-`main`**, so the canonical side needed no change and only the client side
-appears in `git diff origin/main`. A correct sync and a hand-edit produce an
-identical diff shape; only the end state distinguishes them.
-**Fix:** for the mirror, only the end state is checkable, and
-`./scripts/check-contracts.sh` (one `diff -r`) is the authority on it — call
-it, do not reimplement it. Generalises: before writing a check for a repo
-invariant, look for a script that already enforces it. Reimplementing gives
-you a second, worse oracle that can disagree with the first. This one cost
-5 false criticals on its first real branch, and a gate that cries wolf on run
-one never gets a run two.
+**Symptom:** parsing `Promise<Agent[]>` out of a service signature yielded the
+name `null` instead of `Agent`, with no error. Every endpoint in a new
+`api-response-changes` surface resolved to an empty contract column while
+`via: 'service-return'` still claimed success — a silent wrong answer, not a
+crash.
+**Cause:** `sliceBalanced` in `.claude/skills/api-breaking-changes/surface.mjs`
+pairs brackets from `PAIRS = { '(':')', '{':'}', '[':']' }` only. Given `<` it
+increments depth on the open character, never finds a close character (`PAIRS['<']`
+is `undefined`), falls through to its truncation fallback, and returns *everything
+after* the `<` — `Agent[]>`, trailing `>` included. The caller then tests
+`/^(.*)\[\]$/`, which does not match because of that `>`, so the array unwrap and
+the name extraction both fail quietly.
+**Fix:** never use `sliceBalanced` on a TypeScript generic. For a fully-wrapped
+generic, match greedily to the final `>` instead —
+`new RegExp('^' + wrapper + '\\s*<([\\s\\S]*)>$')` — which is what
+`parseTypeExpr` in `.claude/skills/api-response-changes/response-surface.mjs`
+does. When a *nesting-aware* angle scan is genuinely needed (reading a return
+annotation up to `=>`), count `<([{` / `>)]}` by hand and treat `=>` as the
+terminator, as `readHandlerReturnType` in that file does. Adding `<`/`>` to
+`PAIRS` is not the fix: `<` is ambiguous in TS/JS source (comparison, JSX, arrow
+`=>`), and every existing caller scans `()`/`{}`/`[]` where the pairing is
+unambiguous.
+
+## 2026-08-11 — an OpenRouter `:free` model can drop `structured_outputs` while keeping `response_format`
+
+**Rubric:** Tool & Library Notes
+**Symptom:** the conventions scan failed with `429 Provider returned error` after
+the workspace model was set to `google/gemma-4-31b-it:free`. The model id is
+valid, the key works, and the paid `google/gemma-4-31b-it` is fine — so the 429
+reads as a transient rate limit worth retrying. It is not the real problem.
+**Cause:** two distinct facts wearing one error. (1) `429 Provider returned error`
+is the *upstream* provider behind OpenRouter's free pool; OpenRouter's own quota
+message reads `Rate limit exceeded: free-models-per-day`, so the wording tells you
+which one you hit. (2) Behind it, `google/gemma-4-31b-it:free` advertises
+`response_format` but **not** `structured_outputs` in its `supported_parameters`,
+while the paid variant of the same model advertises both. Everything in this repo
+that calls `completeStructured` sends
+`response_format: {type:'json_schema', strict: true}`
+(`reviewer-core/src/llm/openrouter.ts`), so that endpoint could never have
+satisfied the scan — clearing the 429 would only have moved the failure.
+**Fix:** check the capability before blaming the rate limit —
+
+```sh
+curl -s https://openrouter.ai/api/v1/models | python3 -c "
+import json,sys
+for m in json.load(sys.stdin)['data']:
+    if 'gemma-4' in m['id']:
+        print(m['id'], 'structured_outputs' in (m.get('supported_parameters') or []))"
+```
+
+`ModelCatalog.supportsStructuredOutputs` (`server/src/platform/model-catalog.ts`,
+formerly `PriceBook` — it caches `/models` for prices *and* capabilities) now
+answers this, and the conventions scan preflights on it and fails with
+`reason: 'model_unsupported'` before spending a call. It returns **`boolean | null`**
+and `null` means "the catalogue does not know" — callers must treat that as
+*proceed*, never as a denial, or an unreachable `/models` blocks every scan. Free
+models that DO work here: `google/gemma-4-26b-a4b-it:free`. When picking any new
+free model for a structured-output feature, verify the flag first; `:free` is not
+the same endpoint as its paid twin.
+
+## 2026-08-11 — `check-contracts.sh --fix` also lands drift you did not create
+
+**Rubric:** Codebase Patterns
+**Symptom:** a one-file contract change (`contracts/knowledge.ts`) synced with
+`./scripts/check-contracts.sh --fix` produced **five** modified files under
+`client/src/vendor/shared/` — `adapters.ts`, `contracts/eval-ci.ts`,
+`contracts/productionize.ts` and `contracts/trace.ts` had nothing to do with the
+change.
+**Cause:** the two trees were **already** out of sync before the change, and the
+guard is one-directional by design (`rsync -a --delete`, server always wins). So
+`--fix` does not sync your edit — it makes the whole mirror match canonical, which
+includes every earlier unmirrored change. `git diff` on `main` had never been run
+against `diff -r server/src/vendor/shared client/src/vendor/shared`, so nobody
+knew. Both `tsc` runs pass either way, which is exactly the failure mode the guard
+exists to surface.
+**Fix:** run `diff -rq server/src/vendor/shared client/src/vendor/shared`
+**before** touching a contract, so you know which files were already drifted and
+can say so. Do not revert the extra files — they are the mirror catching up, and
+reverting re-breaks it. Call them out separately in the PR description, and
+re-typecheck the client afterwards: a client that stops compiling after a sync is
+the real bug the guard found, not a sync problem.
 
 ## 2026-08-02 — the configured skills get skipped when repo patterns are easy to copy
 

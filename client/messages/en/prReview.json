@@ -124,5 +124,31 @@
     "openTrace": "Open run trace & logs",
     "deleteRun": "Delete run",
     "costUnknown": "n/a"
+  },
+  "intent": {
+    "title": "PR intent",
+    "derive": "Derive intent",
+    "rederive": "Re-derive",
+    "emptyTitle": "No intent derived yet",
+    "emptyBody": "The intent is derived automatically before a review, or you can derive it now.",
+    "errorTitle": "Could not load the PR intent",
+    "stale": "Stale — the head moved",
+    "indirect": "Derived from indirect signals — this PR has no description, linked ticket or specification, so this is a guess.",
+    "inScope": "The author claims this covers",
+    "outOfScope": "The author says this excludes",
+    "sources": "Derived from:",
+    "claimNote": "Scope is what the author claims, not a limit on what the review checks.",
+    "changeType": {
+      "feature": "Feature",
+      "bugfix": "Bug fix",
+      "refactor": "Refactor",
+      "perf": "Performance",
+      "docs": "Documentation",
+      "test": "Tests",
+      "chore": "Chore",
+      "revert": "Revert",
+      "security": "Security",
+      "other": "Other"
+    }
   }
 }

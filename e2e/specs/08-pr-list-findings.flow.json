@@ -1,0 +1,19 @@
+{
+  "name": "PR list findings counters open a per-severity modal without navigating",
+  "description": "From the seeded repo's PR list, click PR #482's CRITICAL counter and confirm the per-severity modal opens over the list. This is the one flow that covers a row-level overlay: the whole row navigates on click, so the counter must open the modal INSTEAD of routing to /pulls/482 — a regression there is invisible to unit tests of either piece alone. Staying on the list is asserted via 'Sort: Newest' (a list-only control) remaining visible while the modal is up, and by the row still being there after closing. Seeded PR #482 carries 1 CRITICAL + 1 WARNING finding (server/src/db/seed.ts), so SUGGESTION is a zero counter — inert, not a button, which is why only Critical/Warning are clicked here. Read-only seeded data (no model call).",
+  "steps": [
+    { "cmd": ["open", "{BASE}/"], "label": "load the app root" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "land on the PR list" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "PR list data settles" },
+    { "cmd": ["wait", "--text", "Add rate limiting to public API endpoints"], "label": "seeded PR row is visible" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Show 1 Critical finding"], "label": "click the CRITICAL findings counter" },
+    { "cmd": ["wait", "--text", "Critical findings"], "label": "the per-severity modal opens" },
+    { "cmd": ["wait", "--text", "Hardcoded Stripe secret key in commit"], "label": "the seeded CRITICAL finding is listed" },
+    { "cmd": ["wait", "--text", "Sort: Newest"], "label": "still on the list — the counter did not navigate to the PR" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Close"], "label": "close the modal" },
+    { "cmd": ["wait", "--text", "Add rate limiting to public API endpoints"], "label": "back to the list with the row intact" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Show 1 Warning finding"], "label": "click the WARNING counter" },
+    { "cmd": ["wait", "--text", "Warning findings"], "label": "the modal reopens scoped to the other severity" },
+    { "cmd": ["wait", "--text", "N+1 query in user list endpoint"], "label": "the seeded WARNING finding is listed" }
+  ]
+}

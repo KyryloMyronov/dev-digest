@@ -10,6 +10,8 @@ import type {
 } from '@devdigest/shared';
 import { AgentsRepository, type SkillLinkInput } from './repository.js';
 import { toAgentDto, toAgentVersionDto } from './helpers.js';
+// `skills` is another module's table; the row → DTO mapper is shared through
+// `_shared/` because `agents` legitimately reads a skill row to inline it.
 import { toSkillDto } from '../_shared/skills.js';
 
 /**
@@ -137,9 +139,12 @@ export class AgentsService {
   }
 
   /**
-   * Linked skills for an agent, ordered, each with its skill inlined — what the
-   * Skills tab renders. Includes DISABLED links: they keep their position and
-   * are still the agent's, they just sit out of the prompt.
+   * The agent's linked skills, ordered, each with its skill inlined.
+   *
+   * `AgentSkillDetail` rather than the bare `AgentSkillLink`: the Skills tab
+   * renders a whole agent's list in one response, so inlining saves an N+1 over
+   * `/skills/:id`. Every link mutation below returns this same full list, so the
+   * client seeds its cache from the response instead of refetching.
    */
   async skillLinks(agentId: string): Promise<AgentSkillDetail[]> {
     const links = await this.repo.linkedSkills(agentId);
@@ -153,8 +158,9 @@ export class AgentsService {
   }
 
   /**
-   * Set / reorder the agent's linked skills — the whole set is replaced in the
-   * order given. Omitting a link's `enabled` attaches it enabled.
+   * Replace the agent's whole ordered link set. `links` carries each entry's
+   * per-agent `enabled`, so a reorder and a toggle are one save — and a reorder
+   * cannot silently re-enable a muted link by falling back to the default.
    */
   async setSkills(
     workspaceId: string,
@@ -183,9 +189,12 @@ export class AgentsService {
   }
 
   /**
-   * Flip one link's per-agent switch. Returns undefined when the agent isn't in
-   * this workspace or doesn't link that skill — the route maps both to 404,
-   * deliberately not distinguishing them across tenants.
+   * Flip one link's per-agent switch. The link keeps its slot in the
+   * concatenation, which is the point: switching a skill off and back on changes
+   * nothing about the prompt except the presence of that one block.
+   *
+   * Returns `undefined` for an unknown/foreign agent AND for a skill this agent
+   * has not linked — both are a 404 to the caller.
    */
   async setSkillEnabled(
     workspaceId: string,
@@ -195,12 +204,12 @@ export class AgentsService {
   ): Promise<AgentSkillDetail[] | undefined> {
     const agent = await this.repo.getById(workspaceId, agentId);
     if (!agent) return undefined;
-    const ok = await this.repo.setSkillEnabled(agentId, skillId, enabled);
-    if (!ok) return undefined;
+    const updated = await this.repo.setLinkEnabled(agentId, skillId, enabled);
+    if (!updated) return undefined;
     return this.skillLinks(agentId);
   }
 
-  /** Detach a skill from an agent. Returns undefined when the agent is unknown. */
+  /** Detach one skill from this agent. The skill itself is untouched. */
   async unlinkSkill(
     workspaceId: string,
     agentId: string,

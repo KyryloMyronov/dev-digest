@@ -46,8 +46,9 @@ when the lesson starts.
 
 | Lesson | Server-side work | Spec |
 |---|---|---|
-| L02 | Skills in the product · conventions extractor | _not written_ |
-| L03 | Intent layer · Smart Diff | _not written_ |
+| L02 | Skills in the product | [`skills.md`](skills.md) |
+| L02 | Conventions extractor | [`conventions.md`](conventions.md) |
+| L03 | ~~Intent layer~~ (shipped — see [`../README.md`](../README.md#review-context-non-obvious)) · Smart Diff | _not written_ |
 | L04 | `devdigest-mcp` server · Blast Radius (reads `repo-intel`) | _not written_ |
 | L05 | Project Context Folder · onboarding generator · PR Brief | _not written_ |
 | L06 | Eval pipeline · secret/phantom gates · plan verifier · export to CI | _not written_ |

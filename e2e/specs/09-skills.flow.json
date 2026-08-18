@@ -1,0 +1,27 @@
+{
+  "name": "Skills library and an agent's Skills tab render the seeded links",
+  "description": "Covers the one class of risk the RTL suites structurally cannot: both skills screens read the REAL API across a process boundary, and every unit test for them stubs `fetch`. Two joins only exist on the server and are invisible to those stubs — GET /skills/:id/agents (which resolves 'Attached to' by joining agent_skills through agents) and GET /agents/:id/skills (which inlines the skill row into each link). Either could return the wrong shape and every client test would still pass. Read-only seeded data: it opens, clicks a card and a tab, and asserts — it creates, toggles, reorders and detaches nothing, so it neither mutates the DB nor triggers a model call. Fixtures come from server/src/db/seed-skills.ts (four skills; uncovered-branches + corner-cases + mocking-discipline linked to Test Quality Reviewer in that order, api-contract-gate linked to General Reviewer) — change that seed and this flow changes with it. Note the absent assertion on the 'Attach a skill' heading: `wait --text` compares RENDERED text and that heading is `text-transform: uppercase`, so it only ever matches as 'ATTACH A SKILL'. Asserting the section's content (api-contract-gate being offered) is both stabler and a stronger claim than asserting its label.",
+  "steps": [
+    { "cmd": ["open", "{BASE}/skills"], "label": "load the skills library" },
+    { "cmd": ["wait", "--url", "/skills"], "label": "skills route reached" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "GET /skills settles" },
+    { "cmd": ["wait", "--text", "uncovered-branches"], "label": "a seeded skill card is visible" },
+    { "cmd": ["wait", "--text", "api-contract-gate"], "label": "the library is workspace-wide, not scoped to one agent" },
+    { "cmd": ["find", "text", "uncovered-branches", "click"], "label": "open the preview beside the grid" },
+    { "cmd": ["wait", "--text", "Uncovered branches"], "label": "the body markdown renders — preview-only, the card shows the description" },
+    { "cmd": ["wait", "--text", "Test Quality Reviewer"], "label": "'Attached to' resolved via GET /skills/:id/agents" },
+
+    { "cmd": ["open", "{BASE}/agents"], "label": "load the agents list" },
+    { "cmd": ["wait", "--url", "/agents"], "label": "agents route reached" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "GET /agents settles" },
+    { "cmd": ["find", "text", "Test Quality Reviewer", "click"], "label": "open the agent that has the seeded skills" },
+    { "cmd": ["wait", "--text", "Configuration"], "label": "the editor opens on its Config tab" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Skills", "--exact"], "label": "switch to the Skills tab" },
+    { "cmd": ["wait", "--url", "tab=skills"], "label": "tab state is in the URL" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "GET /agents/:id/skills settles" },
+    { "cmd": ["wait", "--text", "3 of 3 enabled"], "label": "all three seeded links are attached AND enabled" },
+    { "cmd": ["wait", "--text", "mocking-discipline"], "label": "a linked skill's name comes from the inlined skill row" },
+    { "cmd": ["wait", "--text", "Order matters"], "label": "the ordering hint renders" },
+    { "cmd": ["wait", "--text", "api-contract-gate"], "label": "a skill linked to a DIFFERENT agent shows as attachable here, not as attached" }
+  ]
+}

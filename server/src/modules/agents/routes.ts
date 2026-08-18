@@ -26,8 +26,8 @@ const VersionParams = z.object({
  *   GET    /agents/:id/versions/:version → one config snapshot
  *   GET    /agents/:id/skills       → linked skills (ordered, skill inlined)
  *   POST   /agents/:id/skills       → set/reorder linked skills OR link one
- *   PATCH  /agents/:id/skills/:skillId → per-agent enable/disable of one link
- *   DELETE /agents/:id/skills/:skillId → unlink one skill
+ *   PATCH  /agents/:id/skills/:skillId  → flip ONE link's per-agent switch
+ *   DELETE /agents/:id/skills/:skillId  → detach one skill
  *   GET    /agents/:id/models       → dynamic model list for the agent's provider
  *   GET    /providers/:id/models    → dynamic model list for a provider (editor)
  */
@@ -59,31 +59,41 @@ const UpdateAgentBody = z.object({
 });
 
 /**
- * Either set the whole ordered set (`skill_ids` / `links`) or link one
- * (`skill_id`). `links` is the richer form used by the Skills tab: it carries
- * each link's per-agent `enabled` alongside its position, so a drag and a
- * toggle are one save. `skill_ids` stays as the order-only shorthand.
+ * Three forms, in precedence order:
+ *   `links`     — the rich one: array order IS the prompt order, and each entry
+ *                 carries its own `enabled`, so a reorder and a toggle are one
+ *                 save. This is what the Skills tab sends.
+ *   `skill_ids` — order-only shorthand; everything ends up enabled.
+ *   `skill_id`  — link one, appended unless `order` says otherwise.
+ * A body with none of them is a 422 rather than a silent no-op.
  */
 const SetSkillsBody = z
   .object({
-    skill_ids: z.array(z.string().uuid()).optional(),
     links: z
-      .array(z.object({ skill_id: z.string().uuid(), enabled: z.boolean().optional() }))
+      .array(
+        z.object({
+          skill_id: z.string().uuid(),
+          enabled: z.boolean().optional(),
+        }),
+      )
       .optional(),
+    skill_ids: z.array(z.string().uuid()).optional(),
     skill_id: z.string().uuid().optional(),
     order: z.number().int().optional(),
   })
-  .refine((b) => b.skill_ids !== undefined || b.links !== undefined || b.skill_id !== undefined, {
-    message: 'Provide links / skill_ids (set/reorder) or skill_id (link one)',
-  });
+  .refine(
+    (b) => b.links !== undefined || b.skill_ids !== undefined || b.skill_id !== undefined,
+    { message: 'Provide links / skill_ids (set+reorder) or skill_id (link one)' },
+  );
 
-/** `/agents/:id/skills/:skillId` — both are uuids. */
-const AgentSkillParams = z.object({
+/** The per-agent switch. Body is just the flag; the link is addressed by path. */
+const ToggleSkillBody = z.object({ enabled: z.boolean() });
+
+/** `/agents/:id/skills/:skillId` — both uuids, validated at the edge. */
+const LinkParams = z.object({
   id: z.string().uuid(),
   skillId: z.string().uuid(),
 });
-
-const ToggleSkillBody = z.object({ enabled: z.boolean() });
 
 export default async function agentsRoutes(appBase: FastifyInstance) {
   const app = appBase.withTypeProvider<ZodTypeProvider>();
@@ -173,15 +183,22 @@ export default async function agentsRoutes(appBase: FastifyInstance) {
     async (req) => {
       const { workspaceId } = await getContext(app.container, req);
       const body = req.body;
-      const set =
-        body.links?.map((l) => ({
-          skillId: l.skill_id,
-          ...(l.enabled !== undefined ? { enabled: l.enabled } : {}),
-        })) ?? body.skill_ids?.map((skillId) => ({ skillId }));
-      const links =
-        set !== undefined
-          ? await service.setSkills(workspaceId, req.params.id, set)
-          : await service.linkSkill(workspaceId, req.params.id, body.skill_id!, body.order);
+      let links;
+      if (body.links !== undefined) {
+        links = await service.setSkills(
+          workspaceId,
+          req.params.id,
+          body.links.map((l) => ({ skillId: l.skill_id, enabled: l.enabled })),
+        );
+      } else if (body.skill_ids !== undefined) {
+        links = await service.setSkills(
+          workspaceId,
+          req.params.id,
+          body.skill_ids.map((skillId) => ({ skillId })),
+        );
+      } else {
+        links = await service.linkSkill(workspaceId, req.params.id, body.skill_id!, body.order);
+      }
       if (!links) throw new NotFoundError('Agent not found');
       return links;
     },
@@ -189,7 +206,7 @@ export default async function agentsRoutes(appBase: FastifyInstance) {
 
   app.patch(
     '/agents/:id/skills/:skillId',
-    { schema: { params: AgentSkillParams, body: ToggleSkillBody } },
+    { schema: { params: LinkParams, body: ToggleSkillBody } },
     async (req) => {
       const { workspaceId } = await getContext(app.container, req);
       const links = await service.setSkillEnabled(
@@ -198,21 +215,19 @@ export default async function agentsRoutes(appBase: FastifyInstance) {
         req.params.skillId,
         req.body.enabled,
       );
-      if (!links) throw new NotFoundError('Agent or linked skill not found');
+      // Covers both an unknown/foreign agent and a skill this agent has not
+      // linked — deliberately indistinguishable.
+      if (!links) throw new NotFoundError('Skill link not found');
       return links;
     },
   );
 
-  app.delete(
-    '/agents/:id/skills/:skillId',
-    { schema: { params: AgentSkillParams } },
-    async (req) => {
-      const { workspaceId } = await getContext(app.container, req);
-      const links = await service.unlinkSkill(workspaceId, req.params.id, req.params.skillId);
-      if (!links) throw new NotFoundError('Agent not found');
-      return links;
-    },
-  );
+  app.delete('/agents/:id/skills/:skillId', { schema: { params: LinkParams } }, async (req) => {
+    const { workspaceId } = await getContext(app.container, req);
+    const links = await service.unlinkSkill(workspaceId, req.params.id, req.params.skillId);
+    if (!links) throw new NotFoundError('Agent not found');
+    return links;
+  });
 
   app.get('/agents/:id/models', { schema: { params: IdParams } }, async (req) => {
     const { workspaceId } = await getContext(app.container, req);

@@ -66,15 +66,67 @@ export interface PromptParts {
    * undefined → section omitted.
    */
   prDescription?: string;
+  /**
+   * The PR's DERIVED intent + scope (L03). Untrusted — and untrusted in a way
+   * worth naming: unlike the diff or the PR body, this text is a MODEL's summary
+   * of author-controlled input, so a hostile description can be laundered
+   * through it and arrive wearing our own voice. Delimiter-wrapped like the
+   * rest, and the injection guard already names "derived intent/scope".
+   *
+   * Rendered right after `## PR description` — the claim and the derived reading
+   * of the claim belong together, and both belong before the instruction blocks.
+   * Empty/undefined → section omitted (no behavior change).
+   */
+  intent?: string;
   /** The unified diff / user task (untrusted content). */
   diff: string;
   /** Optional task framing line, e.g. "Review PR #482 '…'". */
   task?: string;
 }
 
+/**
+ * One assembled section, described WITHOUT its content.
+ *
+ * This shape is what gets logged, and it is safe to log by CONSTRUCTION rather
+ * than by filtering: there is no field that can carry the diff, a spec body, a
+ * PR description or a secret. A length and a provenance label cannot leak the
+ * text they describe, so no redaction pass is needed downstream — and none can
+ * be forgotten. Do not add a `text`/`preview`/`sample` field here.
+ */
+export interface PromptSectionMetric {
+  /** The section heading as it appears in the message, e.g. '## Diff to review'. */
+  name: string;
+  /**
+   * Provenance. For delimiter-wrapped data this is the `wrapUntrusted` label
+   * (`diff`, `pr-description`, `derived-intent`, `spec-0`, …); for our own
+   * instructions it is `agent` (the system prompt) or `trusted`.
+   */
+  source: string;
+  /** True when the section is delimiter-wrapped external data. */
+  untrusted: boolean;
+  chars: number;
+  /** Filled only when a token counter was injected (verbose logging). */
+  tokens?: number;
+}
+
 export interface AssembledPrompt {
   messages: ChatMessage[];
   assembly: PromptAssembly;
+  /**
+   * Per-section sizes for structured logging. Always computed (it is a length
+   * and a label); `tokens` only when `countTokens` was supplied, because
+   * tokenizing every section costs real CPU on a large diff.
+   */
+  sections: PromptSectionMetric[];
+}
+
+export interface AssembleOptions {
+  /**
+   * Optional token counter. INJECTED rather than imported: this package stays
+   * free of a tokenizer dependency, and the caller decides whether the cost is
+   * worth paying (the server only passes it in verbose mode).
+   */
+  countTokens?: (text: string) => number;
 }
 
 /**
@@ -82,7 +134,10 @@ export interface AssembledPrompt {
  * Untrusted blocks (specs, diff) are delimiter-wrapped; the injection guard is
  * appended to the system message.
  */
-export function assemblePrompt(parts: PromptParts): AssembledPrompt {
+export function assemblePrompt(
+  parts: PromptParts,
+  options: AssembleOptions = {},
+): AssembledPrompt {
   const system = `${parts.system}\n\n${INJECTION_GUARD}`;
 
   const skillsBlock =
@@ -102,22 +157,65 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
       : undefined;
 
   const userSections: string[] = [];
-  if (parts.task) userSections.push(parts.task);
+  const sections: PromptSectionMetric[] = [];
+
+  /** Record a section's size. The rendered string is what is measured — heading
+   *  and delimiters included — because that is what goes on the wire. */
+  const measure = (name: string, source: string, untrusted: boolean, rendered: string): string => {
+    const metric: PromptSectionMetric = { name, source, untrusted, chars: rendered.length };
+    if (options.countTokens) metric.tokens = options.countTokens(rendered);
+    sections.push(metric);
+    return rendered;
+  };
+  /** Append a user section AND measure it in one step, so a slot can never reach
+   *  the prompt without showing up in the log. */
+  const push = (name: string, source: string, untrusted: boolean, rendered: string): void => {
+    userSections.push(measure(name, source, untrusted, rendered));
+  };
+
+  // The system message is measured but is NOT a user section.
+  measure('system', 'agent', false, system);
+  if (parts.task) push('task', 'trusted', false, parts.task);
   if (prDescription) {
-    userSections.push(`## PR description\n${wrapUntrusted('pr-description', prDescription)}`);
+    push(
+      '## PR description',
+      'pr-description',
+      true,
+      `## PR description\n${wrapUntrusted('pr-description', prDescription)}`,
+    );
   }
-  if (skillsBlock) userSections.push(`## Skills / rules\n${skillsBlock}`);
-  if (memoryBlock) userSections.push(`## Relevant memory\n${memoryBlock}`);
+  if (parts.intent && parts.intent.trim().length > 0) {
+    push(
+      '## PR intent (derived)',
+      'derived-intent',
+      true,
+      `## PR intent (derived)\n${wrapUntrusted('derived-intent', parts.intent)}`,
+    );
+  }
+  if (skillsBlock) {
+    push('## Skills / rules', 'trusted', false, `## Skills / rules\n${skillsBlock}`);
+  }
+  if (memoryBlock) {
+    push('## Relevant memory', 'trusted', false, `## Relevant memory\n${memoryBlock}`);
+  }
   if (parts.repoMap && parts.repoMap.trim().length > 0) {
-    userSections.push(`## Repo skeleton\n${wrapUntrusted('repo-map', parts.repoMap)}`);
+    push(
+      '## Repo skeleton',
+      'repo-map',
+      true,
+      `## Repo skeleton\n${wrapUntrusted('repo-map', parts.repoMap)}`,
+    );
   }
-  if (specsBlock) userSections.push(`## Project context\n${specsBlock}`);
+  if (specsBlock) push('## Project context', 'spec', true, `## Project context\n${specsBlock}`);
   if (parts.callers && parts.callers.trim().length > 0) {
-    userSections.push(
+    push(
+      '## Callers of changed symbols',
+      'callers',
+      true,
       `## Callers of changed symbols\n${wrapUntrusted('callers', parts.callers)}`,
     );
   }
-  userSections.push(`## Diff to review\n${wrapUntrusted('diff', parts.diff)}`);
+  push('## Diff to review', 'diff', true, `## Diff to review\n${wrapUntrusted('diff', parts.diff)}`);
 
   const user = userSections.join('\n\n');
 
@@ -134,8 +232,9 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
     callers: parts.callers ?? null,
     repo_map: parts.repoMap ?? null,
     pr_description: prDescription ?? null,
+    intent: parts.intent ?? null,
     user,
   };
 
-  return { messages, assembly };
+  return { messages, assembly, sections };
 }

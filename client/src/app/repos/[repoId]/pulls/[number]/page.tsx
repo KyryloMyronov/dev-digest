@@ -18,7 +18,7 @@ import RunTraceDrawer from "./_components/RunTraceDrawer";
 import { usePullDetail, usePulls } from "../../../../../lib/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePrReviews, useCancelRun, usePrActiveRuns, usePrRuns, useDeleteRun } from "../../../../../lib/hooks/reviews";
-import { runKeys } from "../../../../../lib/hooks/keys";
+import { intentKeys, runKeys } from "../../../../../lib/hooks/keys";
 import { useActiveRepo, useRepoNotFound } from "../../../../../lib/repo-context";
 import { ApiError } from "../../../../../lib/api";
 import { githubPrUrl } from "../../../../../lib/github-urls";
@@ -56,6 +56,14 @@ export default function PRDetailPage() {
   // just-failed run shows up in "Run history" immediately — no page reload.
   const invalidateRunHistory = () => {
     if (prId) qc.invalidateQueries({ queryKey: runKeys.byPr(prId) });
+  };
+  // A review run DERIVES and persists the PR intent as shared pre-work, so the
+  // Overview card is stale the moment a run settles. Without this the card keeps
+  // showing its empty state (staleTime is 30s and refetchOnWindowFocus is off),
+  // and its "Derive intent" button then spends a second paid model call on an
+  // intent that is already in the database.
+  const invalidateIntent = () => {
+    if (prId) qc.invalidateQueries({ queryKey: intentKeys.byPr(prId) });
   };
 
   const tab = search.get("tab") ?? "overview";
@@ -135,7 +143,7 @@ export default function PRDetailPage() {
       />
 
       <div style={{ padding: "24px 32px 44px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1080, margin: "0 auto" }}>
-        {tab === "overview" && <OverviewTab prBody={pr.body} />}
+        {tab === "overview" && <OverviewTab prBody={pr.body} prId={prId} headSha={pr.head_sha} />}
 
         {tab === "findings" && (
           <FindingsTab
@@ -157,6 +165,7 @@ export default function PRDetailPage() {
             onRunDone={() => {
               invalidateActiveRuns();
               invalidateRunHistory();
+              invalidateIntent();
               refetchReviews();
             }}
           />

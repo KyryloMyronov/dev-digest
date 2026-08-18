@@ -1,5 +1,6 @@
-/* AgentEditor — the agent's Config and Skills tabs. Evals/Stats/CI arrive with
-   their own lessons. Tab state lives in ?tab=. */
+/* AgentEditor — agent config (model + system prompt) and the agent's Skills.
+   Evals/Stats/CI arrive with their own lessons. Tab state lives in ?tab=;
+   an unrecognised value falls back to Config (see TAB_KEYS in ./constants). */
 "use client";
 
 import React from "react";

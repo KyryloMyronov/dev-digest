@@ -24,6 +24,13 @@ export const ModelInfo = z.object({
     .nullish(),
   /** Max context window in tokens (when the provider exposes it). */
   contextLength: z.number().int().nullish(),
+  /**
+   * What the endpoint accepts, verbatim from OpenRouter's `supported_parameters`
+   * (e.g. `structured_outputs`, `tools`, `response_format`). Nullish when the
+   * provider does not publish it — which is NOT the same as "supports nothing",
+   * so an absent list must never be read as a denial.
+   */
+  supportedParameters: z.array(z.string()).nullish(),
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;
 

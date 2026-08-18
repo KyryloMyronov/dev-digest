@@ -8,6 +8,7 @@ import { MockLLMProvider, MockEmbedder, MockGitClient } from '../src/adapters/mo
 import * as t from '../src/db/schema.js';
 import { eq } from 'drizzle-orm';
 import type { Review } from '@devdigest/shared';
+import { intentLlm } from './helpers/intent.js';
 
 const hasDocker = await dockerAvailable();
 const d = hasDocker ? describe : describe.skip;
@@ -119,6 +120,10 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
         git: new MockGitClient({ diff: DIFF }),
         llm: {
           [provider]: new MockLLMProvider(provider, { structured }),
+          // L03 — every review derives the PR intent first, on the
+          // `review_intent` feature model (openrouter by default). Without this
+          // the call would resolve a real provider. See test/helpers/intent.ts.
+          openrouter: intentLlm(),
         },
       },
     });

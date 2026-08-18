@@ -84,6 +84,15 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     app.log.warn({ err: (err as Error).message }, 'stale-run reaping failed (non-fatal)');
   }
 
+  // A flag that silently does nothing is the failure mode that costs an hour of
+  // "why is there no output" — so say out loud that it was refused, and why.
+  if (config.promptLogVerboseSuppressed) {
+    app.log.warn(
+      { flag: 'PROMPT_LOG_VERBOSE' },
+      'PROMPT_LOG_VERBOSE is ignored under NODE_ENV=production — verbose prompt logging is local-only',
+    );
+  }
+
   // Security headers (X-Content-Type-Options, X-Frame-Options, …). The API
   // serves JSON only, so the default CSP is fine.
   await app.register(helmet);

@@ -7,7 +7,7 @@ import type {
   UnifiedDiff,
 } from '@devdigest/shared';
 import { Review as ReviewSchema } from '@devdigest/shared';
-import { assemblePrompt } from '../prompt.js';
+import { assemblePrompt, type PromptSectionMetric } from '../prompt.js';
 import { groundFindings, groundingSummary } from '../grounding.js';
 import { reduceReviews, scoreFromFindings, sliceDiff } from './reduce.js';
 
@@ -71,8 +71,20 @@ export interface ReviewInput {
   /** PR author's description/body (untrusted; truncated + delimiter-wrapped in
       the prompt). Empty/undefined → section omitted. */
   prDescription?: string;
+  /**
+   * Derived PR intent block (L03) — a RESOLVED string, as with skills/specs.
+   * The caller derives it (DB + GitHub + clone + a cheap model); this package
+   * stays pure. Untrusted. Empty/undefined → section omitted.
+   */
+  intent?: string;
   /** Task framing line, e.g. "Review PR #482 …". */
   task?: string;
+  /**
+   * Optional token counter for prompt-size logging. Injected, so this package
+   * needs no tokenizer dependency and the caller pays the CPU only when it
+   * actually wants per-section token counts (the studio: verbose mode only).
+   */
+  countTokens?: (text: string) => number;
   /** Override the structured-output retry budget. */
   maxRetries?: number;
   /** Override the map-reduce line threshold. */
@@ -103,6 +115,11 @@ export interface ReviewOutcome {
   mode: ReviewMode;
   /** Prompt assembly (for the run trace). Single-pass: the one call; map-reduce: the whole-diff assembly. */
   assembly: PromptAssembly;
+  /**
+   * Per-section sizes of that same assembly, for structured logging. Carries no
+   * content by construction — see `PromptSectionMetric`.
+   */
+  sections: PromptSectionMetric[];
   /** Per-chunk labels (for the run trace's tool_calls). */
   chunks: { label: string }[];
   tokensIn: number;
@@ -135,11 +152,15 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
     callers: input.callers,
     repoMap: input.repoMap,
     prDescription: input.prDescription,
+    intent: input.intent,
     task: input.task,
   };
 
   // Whole-diff assembly is the trace default; overwritten below for single-pass.
-  let assembly: PromptAssembly = assemblePrompt({ ...promptParts, diff: input.diff.raw }).assembly;
+  const assembleOpts = input.countTokens ? { countTokens: input.countTokens } : {};
+  const whole = assemblePrompt({ ...promptParts, diff: input.diff.raw }, assembleOpts);
+  let assembly: PromptAssembly = whole.assembly;
+  let sections = whole.sections;
 
   const chunks =
     mode === 'map-reduce'
@@ -169,8 +190,11 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
       mode === 'map-reduce' ? `map: reviewing ${chunk.label}` : `Reviewing ${chunk.label} in one pass`,
       { file: chunk.label },
     );
-    const a = assemblePrompt({ ...promptParts, diff: chunk.diffText });
-    if (mode === 'single-pass') assembly = a.assembly;
+    const a = assemblePrompt({ ...promptParts, diff: chunk.diffText }, assembleOpts);
+    if (mode === 'single-pass') {
+      assembly = a.assembly;
+      sections = a.sections;
+    }
     const res = await input.llm.completeStructured<Review>({
       model: input.model,
       schema: ReviewSchema,
@@ -210,6 +234,7 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
     dropped: ground.dropped,
     mode,
     assembly,
+    sections,
     chunks: chunks.map((c) => ({ label: c.label })),
     tokensIn,
     tokensOut,

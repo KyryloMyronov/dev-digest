@@ -1,0 +1,110 @@
+/* hooks/keys.ts — the single source of truth for React Query cache keys.
+ *
+ * Keys used to be inline array literals repeated across hook files and, in a
+ * couple of places, component files. Nothing tied a `useQuery(["reviews", id])`
+ * to the `invalidateQueries(["reviews", id])` meant to refresh it, so a typo or
+ * a rename silently produced a mutation that appeared to succeed while the UI
+ * kept rendering stale data — no type error, no runtime error.
+ *
+ * Grouped by domain, mirroring one file per domain in this folder. Each group
+ * exposes the broad key first and the specific ones under it, so
+ * `invalidateQueries({ queryKey: reviewKeys.all })` still matches every
+ * per-PR entry by prefix — the behaviour the old string literals relied on.
+ *
+ * `as const` throughout: it makes the tuples readonly and literal-typed, which
+ * is what lets TypeScript catch a mistyped key at the call site.
+ */
+
+/**
+ * An id embedded in a cache key. `number` is allowed because a PR is
+ * addressable by its number as well as its uuid (`usePullDetail`), and
+ * null/undefined because hooks stay mounted with a not-yet-resolved id and
+ * gate the fetch on `enabled` instead.
+ */
+type Id = string | number | null | undefined;
+
+// ---- Settings & secrets ----------------------------------------------------
+
+export const settingsKeys = {
+  all: ["settings"] as const,
+};
+
+export const secretsKeys = {
+  status: ["secrets-status"] as const,
+};
+
+/** Provider model lists — queried per provider, invalidated as a whole. */
+export const providerModelKeys = {
+  all: ["provider-models"] as const,
+  byProvider: (provider: Id) => ["provider-models", provider] as const,
+};
+
+// ---- Repos, pulls, context -------------------------------------------------
+
+export const repoKeys = {
+  all: ["repos"] as const,
+};
+
+export const pullKeys = {
+  listByRepo: (repoId: Id) => ["pulls", repoId] as const,
+  detail: (prId: Id) => ["pull", prId] as const,
+};
+
+export const contextKeys = {
+  byRepo: (repoId: Id) => ["context", repoId] as const,
+};
+
+export const repoIntelKeys = {
+  state: (repoId: Id) => ["repo-intel-state", repoId] as const,
+};
+
+// ---- Agents ----------------------------------------------------------------
+
+export const agentKeys = {
+  all: ["agents"] as const,
+  detail: (id: Id) => ["agent", id] as const,
+  /** The agent's ordered skill links — invalidated by every attach/toggle/reorder. */
+  skills: (id: Id) => ["agent-skills", id] as const,
+};
+
+// ---- Skills ----------------------------------------------------------------
+
+export const skillKeys = {
+  all: ["skills"] as const,
+  detail: (id: Id) => ["skill", id] as const,
+  versions: (id: Id) => ["skill-versions", id] as const,
+  /** Agents linking a skill — read before a delete, to name what it breaks. */
+  agents: (id: Id) => ["skill-agents", id] as const,
+};
+
+// ---- Conventions -----------------------------------------------------------
+
+export const conventionKeys = {
+  all: ["conventions"] as const,
+  /** The screen in one entry: `{ scan, items }` for a repo. */
+  byRepo: (repoId: Id) => ["conventions", repoId] as const,
+  /** The unsaved skill composed from the accepted rows. Read-only. */
+  skillDraft: (repoId: Id) => ["convention-skill-draft", repoId] as const,
+};
+
+// ---- Reviews, runs, traces, comments ---------------------------------------
+
+export const reviewKeys = {
+  byPr: (prId: Id) => ["reviews", prId] as const,
+};
+
+/** L03 — the derived PR intent. Shares no prefix with reviewKeys/runKeys, so it
+    must be invalidated explicitly by this exact key, never by a prefix sweep. */
+export const intentKeys = {
+  byPr: (prId: Id) => ["pr-intent", prId] as const,
+};
+
+export const runKeys = {
+  byPr: (prId: Id) => ["pr-runs", prId] as const,
+  activeByPr: (prId: Id) => ["pr-active-runs", prId] as const,
+  trace: (runId: Id) => ["run-trace", runId] as const,
+};
+
+export const prCommentKeys = {
+  byPr: (prId: Id) => ["pr-comments", prId] as const,
+};

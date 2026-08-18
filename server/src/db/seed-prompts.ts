@@ -292,15 +292,15 @@ findings list; NEVER approve while reporting a CRITICAL. No findings ⇒ approve
   are only for a security agent's lethal-trifecta data-flow findings.`;
 
 /**
- * Test Quality Reviewer (L02 — skills).
+ * Test Quality Reviewer (L02).
  *
- * DELIBERATELY thin on specific criteria: its rubrics (uncovered branches,
- * corner cases, mocking discipline, flake signals) are SKILLS linked in the
- * agent's Skills tab, not prompt text. That split is what makes skills
- * measurable — the same agent on the same diff approves with its skills off and
- * flags the uncovered branch with them on. Adding the rubrics here would make
- * both runs identical and quietly destroy the comparison. Rationale and the
- * canonical copy: `docs/agent-prompts/test-quality-reviewer.md`.
+ * Deliberately thin on specifics: this agent's review rubrics — uncovered
+ * branches, corner cases, mocking discipline, flake signals — are SKILLS, linked
+ * in its Skills tab and rendered into `## Skills / rules` at run time. That split
+ * is what makes the feature measurable: with the skills off this prompt approves a
+ * happy-path-only test, with them on the same model on the same diff flags the
+ * uncovered branch. Thickening this prompt with the rubrics destroys that
+ * comparison while every test still passes, so new criteria go in skills.
  */
 export const TEST_QUALITY_REVIEWER_PROMPT = `# Role
 You are a senior engineer reviewing the TESTS in a pull-request diff for a
