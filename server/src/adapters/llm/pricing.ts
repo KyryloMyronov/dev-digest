@@ -28,7 +28,10 @@ const PRICING: Record<string, Price> = {
   // must be confirmed against openrouter.ai/models before relying on cost.
   // Unknown slugs fall through to null cost (explicitly flagged), which is safe.
   'z-ai/glm-4.7-flash': { in: 0, out: 0 }, // free baseline for evals
-  'deepseek/deepseek-v4-flash': { in: 0.14, out: 0.28 },
+  // Confirmed against openrouter.ai/api/v1/models on 2026-08-17. The floating
+  // alias is cheaper than the pinned `-0731` snapshot (0.14/0.28), which is what
+  // this entry used to carry.
+  'deepseek/deepseek-v4-flash': { in: 0.077, out: 0.154 },
   'z-ai/glm-4.7-flashx': { in: 0.15, out: 0.4 },
   'minimax/minimax-m2.5': { in: 0.3, out: 1.2 },
   'z-ai/glm-5.1': { in: 0.6, out: 2.2 },

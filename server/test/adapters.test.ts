@@ -104,4 +104,13 @@ describe('pricing / cost discipline', () => {
     expect(estimateCost('gpt-4o-mini', 1_000_000, 0)).toBeCloseTo(0.15, 5);
     expect(estimateCost('some-future-model', 1000, 1000)).toBeNull();
   });
+
+  // regression guard: "free" and "unknown" are two different facts that both
+  // look falsy. z-ai/glm-4.7-flash IS in the table at { in: 0, out: 0 }, so it
+  // must yield the number 0 — never null, which is reserved for "not priced".
+  it('returns numeric 0 (not null) for a model priced at zero', () => {
+    const free = estimateCost('z-ai/glm-4.7-flash', 1_000_000, 1_000_000);
+    expect(free).not.toBeNull();
+    expect(free).toBe(0);
+  });
 });

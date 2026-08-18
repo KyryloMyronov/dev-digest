@@ -93,6 +93,12 @@ export const reviewKeys = {
   byPr: (prId: Id) => ["reviews", prId] as const,
 };
 
+/** L03 — the derived PR intent. Shares no prefix with reviewKeys/runKeys, so it
+    must be invalidated explicitly by this exact key, never by a prefix sweep. */
+export const intentKeys = {
+  byPr: (prId: Id) => ["pr-intent", prId] as const,
+};
+
 export const runKeys = {
   byPr: (prId: Id) => ["pr-runs", prId] as const,
   activeByPr: (prId: Id) => ["pr-active-runs", prId] as const,

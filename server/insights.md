@@ -14,6 +14,97 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-17 — a feature-model default the tests don't override reaches a REAL provider, and the suite bills you for it
+
+**Rubric:** What Doesn't Work
+**Symptom:** a brand-new `*.it.test.ts` for the L03 intent layer failed on three
+assertions that all looked like ordinary fixture drift — `change_type` was not
+`'bugfix'`, and a confidence the fixture set to `0.95` came back as **`0.4`**.
+`0.4` appears nowhere in the test. It appears in
+`src/prompts/review-intent.system.md`, which instructs the model to cap an
+undocumented reading "at 0.4" — i.e. a **live OpenRouter call** had read the new
+prompt file and followed it. The suite was silently spending money.
+**Cause:** `container.llm(id)` resolves `overrides.llm?.[id]` **by provider id**
+(`platform/container.ts:189`), and every existing integration test overrides only
+the provider its *agent* uses (`openai`). L03 added a second model call in front
+of every review — the `review_intent` feature model — whose registry default is a
+different provider (`openrouter`, `contracts/platform.ts:51`). With no key that
+path throws `ConfigError` and degrades harmlessly, which is why this is invisible
+in CI; on a developer machine with `OPENROUTER_API_KEY` configured it is a real,
+billable request whose answer the assertions then depend on.
+**Fix:** override **every provider the code will resolve**, not just the agent's.
+`test/helpers/intent.ts` exports `intentLlm()` for exactly this and is wired into
+`reviews.it.test.ts`, `skills-prompt.it.test.ts` and `intent.it.test.ts`:
+
+```ts
+llm: {
+  openai: new MockLLMProvider('openai', { structured: REVIEW_FIXTURE }),
+  openrouter: intentLlm(),   // ← the feature-model half; without it, a real call
+}
+```
+
+The general rule, which now applies to every future feature model: **changing a
+`FEATURE_MODELS` default provider is a test-harness change**, because it moves
+which key of the override map is consulted. Before changing one, grep the
+integration tests for `llm: {` and confirm each still covers what the new default
+resolves. The tell that you are hitting a live model is an assertion failing
+against a value that exists in a **prompt file** rather than in the fixture.
+
+## 2026-08-17 — a timestamp defaulted by Postgres and updated by Node mixes two clocks, and can go backwards
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** `pr_intent.created_at` (meaning "last derived at") went *backwards*
+on a re-derivation — an integration assertion that the second write is newer
+failed with `expected 1786994453943 to be greater than 1786994453993`, i.e. the
+**fresh** row was 50ms older than the one it replaced. Reads as a wildly flaky
+test, or as an upsert writing the wrong row.
+**Cause:** the two write paths used two different clocks. The insert path takes
+the column default — `now()` from `db/schema/_shared.ts:9`, evaluated **inside
+Postgres**. The conflict path stamped `createdAt: new Date()`, evaluated in
+**Node**. Under Colima (and any VM- or container-hosted Postgres) those clocks
+drift apart, so the comparison is unsound in both directions and no amount of
+`setTimeout` between the writes fixes it.
+**Fix:** stamp both paths from the same clock — in an `onConflictDoUpdate` on a
+table whose timestamp column is `defaultNow()`, use SQL, not JS:
+
+```ts
+import { sql } from 'drizzle-orm';
+.onConflictDoUpdate({ target: t.prIntent.prId, set: { ...values, createdAt: sql`now()` } })
+```
+
+Two separate requests are two transactions, so `now()` still differs between
+them. The column cannot simply be left out of the `set`: the default fires only
+on insert, so an omitted `createdAt` keeps the original timestamp and the row
+reads as never re-derived. Applies to every "last updated at" column reached by
+an upsert — check `conventions` and `repo_index_state` before adding one there.
+
+## 2026-08-17 — `HEAD` does not typecheck: `modules/index.ts` carries a duplicated `skills` import, and the fix is uncommitted
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** `pnpm typecheck` fails on a fresh clone of `main`/`HEAD` (`956295b`)
+but passes in this working tree. Meanwhile `git status` shows a lone
+` M server/src/modules/index.ts` that reads like unrelated leftover noise from
+someone else's session — easy to ignore, and easy to `git checkout --` away.
+**Cause:** `956295b` ("Add missing files") committed
+`server/src/modules/index.ts` with `import skills from './skills/routes.js';`
+present **twice** (lines 8 and 11) and the `skills` key present twice in the
+`modules` literal (lines 34 and 37). `tsc` reports
+`error TS2300: Duplicate identifier 'skills'` — confirmed by compiling
+`git show HEAD:server/src/modules/index.ts`. Runtime was never affected, which is
+why this survived: `app.ts` iterates `Object.values(modules)` and a duplicated
+object-literal key collapses to one, so boot worked and every suite stayed green.
+`pnpm lint:arch` also passes on **both** versions (`✔ no dependency violations
+found`) because the dependency graph is identical either way. Only the
+typechecker sees it.
+**Fix:** commit that deletion — the uncommitted working-tree edit *is* the fix,
+and until it lands a fresh clone cannot typecheck and `server-unit.yml` fails for
+a reason unrelated to whatever PR triggered it. Do not restore either duplicate.
+The general lesson: the module registry is a hand-maintained static literal
+(deliberately not `@fastify/autoload`, `server/src/modules/index.ts:17-24`), so a
+duplicated or missing key is a class of defect that **only** `tsc` catches — a
+green `lint:arch` and a green suite say nothing about it. When you touch the
+registry, run `pnpm typecheck` specifically.
+
 ## 2026-08-12 — a response type is declared in one of four places, and 9 endpoints declare none
 
 **Rubric:** Codebase Patterns

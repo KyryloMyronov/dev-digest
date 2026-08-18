@@ -46,6 +46,18 @@ export class RunLogger {
     return new RunLogger(this.bus, [runId], this.base, { ...this.ctx, ...ctx });
   }
 
+  /**
+   * The stdout (pino) logger only, WITHOUT the SSE fan-out.
+   *
+   * For structured operational records that must not appear in the user-facing
+   * Live Log — per-section prompt sizes are the case this exists for: they are
+   * ops telemetry, and pushing a line per section into the run's event stream
+   * would bury the events a human is actually reading.
+   */
+  get stdout(): PinoLike | undefined {
+    return this.base;
+  }
+
   /** Publish one event to every target run's stream + mirror to stdout. */
   event(kind: RunEventKind, msg: string, data?: unknown): void {
     for (const runId of this.runIds) this.bus.publish(runId, kind, msg, data);

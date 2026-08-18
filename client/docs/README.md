@@ -17,7 +17,6 @@ demand. Nothing here should restate a README — link it instead.
 …an explanation is too long for `CLAUDE.md` and isn't usage documentation.
 Candidates as the UI grows:
 
-- `data-layer.md` — query keys, invalidation rules, why every call goes through `lib/api.ts`
 - `error-ux.md` — the toast / inline / full-screen taxonomy and how `ApiError.status` selects one
 - `live-runs.md` — consuming the SSE run stream, reconnection, replay
 - `i18n.md` — next-intl catalogue layout and adding a locale
@@ -26,4 +25,6 @@ Name files by topic, lowercase, one concern each.
 
 ## Docs in this folder
 
-_(none yet)_
+| Doc | What it explains |
+|---|---|
+| [`data-layer.md`](data-layer.md) | Why every call goes through `lib/api.ts`, what `apiFetch` normalises, the `keys.ts` factories and the invalidate / seed / remove choice |

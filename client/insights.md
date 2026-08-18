@@ -14,6 +14,33 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-17 — the `keys.ts` header comment teaches a `reviewKeys.all` that does not exist
+
+**Rubric:** What Doesn't Work
+**Symptom:** the doc comment at `client/src/lib/hooks/keys.ts:9-12` explains the
+cache-key convention with a worked example —
+`invalidateQueries({ queryKey: reviewKeys.all })` "still matches every per-PR
+entry by prefix". Following it, you would expect one invalidation per domain to be
+enough, and write a mutation that refreshes nothing.
+**Cause:** `reviewKeys` exposes only `byPr` (`keys.ts:92-94`) — there is no `all`
+field on it at all. Prefix nesting genuinely holds for exactly two groups,
+`conventionKeys` (`:83-85`) and `providerModelKeys` (`:38-39`). Everywhere else the
+broad and specific keys deliberately do **not** share a prefix: `agentKeys.all` is
+`["agents"]` while `agentKeys.detail` is `["agent", id]` (`:64-65`) — plural
+against singular. `skillKeys` (`:72-74`) and `pullKeys` (`:48-51`) have the same
+shape. The comment describes an intended convention; the tuples are the contract.
+**Fix:** read the tuples, never the header. Because the prefixes do not nest, a
+mutation has to touch both keys explicitly — which is exactly why `useUpdateAgent`
+invalidates the list **and** seeds the detail
+(`client/src/lib/hooks/agents.ts:66-69`) and `useDeleteAgent` invalidates the list
+**and** removes the detail (`:77-79`). Copy those, not the comment. Note the
+failure mode is the silent one already described in `client/AGENTS.md` for inline
+literals: no type error, no runtime error, a mutation that looks successful while
+`staleTime: 30_000` and `refetchOnWindowFocus: false`
+(`client/src/lib/providers.tsx:28-29`) keep the stale render on screen. The
+comment itself still needs correcting — it is production code, so it did not get
+fixed here.
+
 ## 2026-08-11 — two shipped hooks call endpoints the API has never served
 
 **Rubric:** Open Questions

@@ -69,7 +69,7 @@ flowchart TB
     polling["polling<br/>/repos/:id/poll"]
   end
   subgraph Review["Review & runs"]
-    reviews["reviews<br/>/pulls/:id/review · /reviews · /findings/:id/(accept|dismiss)<br/>/runs/:id/(events|trace)"]
+    reviews["reviews<br/>/pulls/:id/review · /pulls/:id/intent · /reviews<br/>/findings/:id/(accept|dismiss) · /runs/:id/(events|trace)"]
   end
   subgraph Agents["Agents & skills"]
     agents["agents<br/>/agents · /agents/:id<br/>/agents/:id/skills (set · toggle · unlink)"]
@@ -98,6 +98,7 @@ flowchart TB
 | `GITHUB_TOKEN` | — | optional; PAT with repo scope (`GITHUB_PAT` accepted as a fallback) |
 | `EMBEDDINGS_ENABLED` | `false` | memory/RAG embeddings (OpenAI); off → **zero** OpenAI calls |
 | `REPO_INTEL_ENABLED` | `true` | repo skeleton + callers in the prompt; `false` → ripgrep-only |
+| `PROMPT_LOG_VERBOSE` | `false` | per-section prompt sizes at DEBUG. **Local only** — ignored under `NODE_ENV=production`. Never logs prompt content |
 | `DEVDIGEST_CLONE_DIR` | `./clones` | imported-repo checkouts (git-ignored) |
 | `LOG_LEVEL` | `info` (`silent` in test) | pino level |
 | `NODE_ENV` | `development` | `test` → silent logs + global rate-limit disabled |
@@ -130,9 +131,50 @@ What the reviewer actually sends to the model is assembled in
   demo / test / not for production / do not flag" never descope the review — real
   defects are reported at full severity regardless. We deliberately do **not**
   keyword-scan untrusted text (a denylist only catches one phrasing).
+- **Prompt assembly is logged structurally, and cannot leak content.**
+  `assemblePrompt` returns a `sections[]` of `{ name, source, untrusted, chars,
+  tokens? }` — a type with **no field that can hold text** — and
+  `platform/prompt-log.ts` is the only consumer. So the diff, the PR body, spec
+  chunks and the derived intent are unleakable through this path by
+  construction, not by a redaction step someone could forget. Every record
+  carries a `correlationId` shared by one review fan-out (diff load → intent
+  derivation → each agent's call), plus the provider and model actually used.
+  One summary line always; `PROMPT_LOG_VERBOSE=true` (+ `LOG_LEVEL=debug`) adds
+  the per-section breakdown, and is ignored in production. If you need the
+  prompt *content*, it is already in `run_traces.prompt_assembly`, behind the
+  API's workspace scoping — which is where access-controlled data belongs.
 - **Grounding is mandatory.** Every finding must cite a line that exists in the
   diff or it is dropped (`groundFindings`), and the score is recomputed from the
   surviving findings — the model's self-reported score is ignored.
+- **Intent is derived once per run, on a SEPARATE cheap model** (L03,
+  `modules/reviews/intent-pipeline.ts`). Before the agents run, the executor
+  gathers the PR title, body, branch, commit subjects, changed-file paths, a
+  linked GitHub issue (`Closes #N`) and any in-repo plan/spec the body points at,
+  and asks the `review_intent` feature model (Settings → Models; defaults to
+  `openrouter` / `deepseek/deepseek-v4-flash`) for a structured reading. The block
+  goes into the prompt's `## PR intent (derived)` slot and into `pr_intent`.
+  Four properties worth knowing:
+  - **Cached on `(pr_id, head_sha)`** — N agents in one request derive once, a
+    repeat review of the same head is free, a force-push re-derives.
+  - **Never fatal.** Every failure path (no key, unsupported model, provider
+    error, no signals) returns nothing and the review proceeds with a prompt
+    byte-identical to the pre-L03 one. The only record is the run's Live Log,
+    which is why failures log at `error` rather than `info`.
+  - **Confidence is computed, not reported.** The model's number is a ceiling;
+    without documentation (a real body, a resolved ticket, or a plan/spec) it is
+    capped at 0.45 and the UI says the reading came from indirect signals. A Jira
+    key with no tracker connected is detected but never counts as documentation.
+  - **Cost lands on `pr_intent.cost_usd`**, not `agent_runs.cost_usd` — one shared
+    derivation charged to N runs would over-report the PR list by (N−1)×.
+  - **A manual re-derivation is a JOB, not a request.** `POST /pulls/:id/intent`
+    enqueues `intent.derive` and answers **202** with a job id — it never returns
+    the intent, because the derivation makes a model call, a GitHub call and up
+    to two clone reads. The client polls `GET /pulls/:id/intent` until the stored
+    `head_sha` matches the PR's. The handler swallows the pipeline's error on
+    purpose: `JobRunner` retries a *rejected* handler twice, which for a broken
+    model config would mean three billed derivations.
+  - Tests that trigger a review must override the **openrouter** provider too, or
+    the intent call resolves a real one — see `test/helpers/intent.ts`.
 
 ## Testing
 

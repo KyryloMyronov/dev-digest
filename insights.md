@@ -18,6 +18,123 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-17 — `check-contracts.sh` guards ONE of the two client mirrors; the feature-model registry is the other
+
+**Rubric:** Codebase Patterns
+**Symptom:** a one-line change to a `FEATURE_MODELS` default in
+`server/src/vendor/shared/contracts/platform.ts`, synced with
+`./scripts/check-contracts.sh --fix`, verified with a clean
+`check-contracts: OK`, and typechecked in both packages — and the Settings screen
+would still have offered the OLD default while the server used the new one. No
+script, no typechecker and no test says a word.
+**Cause:** the client cannot import a runtime VALUE from `@devdigest/shared` (it
+breaks only the webpack build — see `client/insights.md` 2026-08-11), and
+`FEATURE_MODELS` is a value, not a type. So `client/src/lib/feature-models.ts`
+is a **second, hand-maintained copy** of the registry, and it lives *outside*
+`client/src/vendor/`, which is the only tree `check-contracts.sh` rsyncs. The
+guard's green checkmark is therefore true and irrelevant: it compared the two
+`vendor/shared` trees, which did match.
+**Fix:** treat a `FEATURE_MODELS` edit as **two** files in two packages, and diff
+them by hand — the guard cannot help:
+
+```sh
+# rc=0 ⇒ in sync. Compares only the id/provider/model triples, normalising the
+# quote style (the server file uses ', the client file uses ") and ignoring the
+# comments and descriptions, which legitimately differ.
+diff <(grep -oE "(id|defaultProvider|defaultModel): *['\"][^'\"]+" \
+         server/src/vendor/shared/contracts/platform.ts | tr -d "'\"") \
+     <(grep -oE "(id|defaultProvider|defaultModel): *['\"][^'\"]+" \
+         client/src/lib/feature-models.ts | tr -d "'\"")
+```
+
+Do **not** compare the two blocks with `grep -A<n>` — the server copy carries
+comments the client copy does not, so the window slides and the diff is noise.
+The same
+trap applies to any other exported *value* the studio needs — a const array, an
+enum-like object, a default table. Types are safe; values are a manual mirror
+with no guard behind them. When adding one, put a pointer in both files.
+
+## 2026-08-17 — there is no ESLint here; `lint:arch` is the only enforced architecture rule, and only on the server
+
+**Rubric:** Codebase Patterns
+**Symptom:** reviewing a client change against `client/AGENTS.md`, the natural
+assumption is that *something* mechanical enforces at least the cheap rules — an
+inline `queryKey` literal, a `fetch` inside a component, a hand-rolled primitive
+that `src/vendor/ui` already has. Nothing does. `cd client && pnpm lint` is not a
+script that exists, and its absence looks like an oversight rather than the whole
+picture.
+**Cause:** the repository has no ESLint at all — no `.eslintrc*` and no
+`eslint.config.*` anywhere outside `node_modules`, and `client/package.json:5-11`
+declares only `dev|build|start|typecheck|test`. The single architectural
+enforcement in the repo is `server/package.json:11` →
+`lint:arch` = `depcruise src --config .dependency-cruiser.cjs`: eleven named
+rules (`no-drizzle-outside-persistence`, `no-db-schema-above-repository`,
+`no-vendor-sdks-outside-adapters`, `no-fastify-below-routes`,
+`no-cross-module-internals`, `no-module-imports-from-platform`,
+`no-server-imports-from-shared`, `no-core-imports-from-server`, `no-circular`,
+`not-to-dev-dep`, `no-deprecated-core` — `server/.dependency-cruiser.cjs:33-193`)
+scanning `server/src` **only**.
+**Fix:** treat the two halves as different jobs. On the server, run
+`cd server && pnpm lint:arch` first and then never restate what it proved — quote
+its result instead, or you spend the review re-deriving a rule that already
+passed. On the client, every rule in `client/AGENTS.md` is prose held up by a
+reader: an inline `queryKey`, `'use server'`, a locally-declared type instead of
+`@devdigest/shared`, an edit to `src/vendor/shared/` alone — all of them compile,
+all of them pass `pnpm test`, and nothing but review will catch them. One
+server-side corollary: `.dependency-cruiser.cjs:23-26` records that "there is no
+legacy allow-list left", so a **new** `pathNot` exemption is a regression of that
+position and is a human decision, not a config tweak.
+
+## 2026-08-17 — a subagent's startup git-status is a session-start snapshot, not the current tree
+
+**Rubric:** What Doesn't Work
+**Symptom:** a `plan-verifier` probe stated the working tree in its final message
+— `A .claude/agents/researcher.md`, ` M server/src/modules/index.ts` — confidently
+and in passing, having made **zero tool calls**. Four files that existed on disk
+were missing from that picture and three more had been staged since. Nothing in
+the output marked it as second-hand.
+**Cause:** the harness injects a git-status snapshot into every subagent's startup
+context, taken when the **session** began, and never refreshes it. An agent that
+reads it as "the current state" is quoting inherited narrative, and inherited
+narrative is indistinguishable from a checked fact once it is in the report.
+**Fix:** any agent whose verdict depends on the tree must establish it itself —
+`git status --porcelain`, `git diff`, `git diff --cached` — and treat the snapshot
+as a hint, never as evidence. This is now a hard constraint in
+`.claude/agents/plan-verifier.md` and `.claude/agents/architecture-reviewer.md`;
+in particular, never mark a plan item `Not implemented` off a snapshot without
+opening the path. The mirror-image trap shows up in long parallel runs: both
+reviewers noticed files changing *mid-run* (a concurrent `test-writer` and
+`doc-writer`), and the correct response is to record the shift in
+`Coverage` / `Evidence log` rather than silently review a moving target. When
+several write-agents run at once, expect `git status` to include work that is not
+the one under review, and attribute it explicitly.
+
+## 2026-08-17 — nothing in CI or vitest looks at `.claude/**`, and `wc -l` lies about the last line
+
+**Rubric:** Tool & Library Notes
+**Symptom:** five new agent definition files plus a rewritten
+`.claude/agents/README.md` landed without a single check firing anywhere — no
+workflow, no suite, no typechecker. Separately, a citation checker over those
+files reported two *correct* `path:line` references as OUT OF RANGE.
+**Cause:** two unrelated facts. (1) All six workflows in `.github/workflows/` are
+path-filtered per package and none of them matches `.claude/**`;
+`server/vitest.config.ts:14` includes only `test/**` and `src/**`, and
+`client/vitest.config.ts:18` only `src/**`. A malformed agent frontmatter is
+therefore invisible until somebody actually runs that agent. (2) `wc -l` counts
+newline characters, not lines, so a file without a trailing newline reports one
+fewer than it has — and a citation to that final line then fails a
+`line <= wc -l` bound. `server/docs/README.md:31` and `client/docs/README.md:29`
+are both exactly that case (`_(none yet)_` on the last line).
+**Fix:** verify `.claude/**` by hand and assume no safety net. The checks worth
+running: frontmatter parses and is closed; every key is in the set the existing
+agents use (`name`, `description`, `tools`, `disallowedTools`, `model`, `effort`,
+`permissionMode`, `color`); every tool name is real — a typo'd name is a silently
+**empty** rule, so a denylist entry that does not resolve forbids nothing; `name`
+equals the filename stem; every relative link passes `test -e`; every `path:line`
+opens to what it claims. For that last check count lines with `grep -c ''` or
+`awk 'END{print NR}'` (both count the trailing partial line) — verified: on a
+3-line file with no final newline, `wc -l` says 2 while both alternatives say 3.
+
 ## 2026-08-12 — the skills' source scanner is now one file, and `<` in `PAIRS` was provably safe
 
 **Rubric:** What Works

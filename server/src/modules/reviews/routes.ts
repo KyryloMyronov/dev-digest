@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { RunRequest } from '@devdigest/shared';
-import type { RunEvent } from '@devdigest/shared';
+import type { PrIntentRecord, RunEvent } from '@devdigest/shared';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
 import { NotFoundError } from '../../platform/errors.js';
@@ -13,6 +13,8 @@ import { ReviewService } from './service.js';
  *   GET    /runs/:id/events                            → SSE stream of RunEvent (replay-first)
  *   GET    /runs/:id/trace                             → the single-document RunTrace
  *   GET    /pulls/:id/reviews                          → persisted reviews + findings for a PR
+ *   GET    /pulls/:id/intent                           → the derived PR intent (or null)
+ *   POST   /pulls/:id/intent                           → QUEUE a re-derivation (202 + jobId)
  *   POST   /findings/:id/(accept|dismiss)              → finding actions
  */
 const FINDING_ACTIONS = ['accept', 'dismiss'] as const;
@@ -20,6 +22,12 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
   const app = appBase.withTypeProvider<ZodTypeProvider>();
   const { container } = app;
   const service = new ReviewService(container);
+  service.registerIntentJobHandler();
+
+  /** 202 body of `POST /pulls/:id/intent` — the job receipt, never the result. */
+  type IntentDeriveAccepted =
+    | { status: 'accepted'; jobId: string }
+    | { status: 'accepted'; degraded: true; reason: string };
 
   // ---- Run a review (manual trigger) -------------------------------
   // Tight per-route limit: each call can fan out to expensive LLM runs.
@@ -130,6 +138,37 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
     const { workspaceId } = await getContext(container, req);
     return service.reviewsForPull(workspaceId, req.params.id);
   });
+
+  // ---- L03 · PR intent ----------------------------------------------------
+  // Read only. Never derives: a GET must not spend a model call, and a review run
+  // (or the POST below) is what fills this in.
+  app.get(
+    '/pulls/:id/intent',
+    { schema: { params: IdParams } },
+    async (req): Promise<PrIntentRecord | null> => {
+      const { workspaceId } = await getContext(container, req);
+      return service.getIntent(workspaceId, req.params.id);
+    },
+  );
+
+  // Queue a re-derivation. 202, never the result: the derivation makes a model
+  // call, a GitHub call and up to two clone reads, so it goes through JobRunner
+  // rather than being awaited in the request (`AGENTS.md` — "anything slow goes
+  // through JobRunner"), exactly as the conventions scan does. 202 whether or
+  // not the enqueue took, so the UI has one path: poll the intent until it is
+  // fresh for the current head. An unknown PR still 404s.
+  app.post(
+    '/pulls/:id/intent',
+    { schema: { params: IdParams }, config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
+    async (req, reply): Promise<IntentDeriveAccepted> => {
+      const { workspaceId } = await getContext(container, req);
+      const jobId = await service.enqueueIntentDerivation(workspaceId, req.params.id);
+      reply.code(202);
+      return jobId
+        ? { status: 'accepted', jobId }
+        : { status: 'accepted', degraded: true, reason: 'no_handler' };
+    },
+  );
 
   // ---- Delete a whole review run (one agent's pass) + its findings --------
   app.delete('/reviews/:id', { schema: { params: IdParams } }, async (req) => {
