@@ -1,10 +1,12 @@
 /* FileCard — one collapsible file in the diff: header (path, +/- stat, comment
-   count) and, when open, its parsed lines plus any outdated comments. */
+   count, review-finding badge) and, when open, its parsed lines plus any
+   outdated comments. An annotation (L03 · Smart Diff) adds the finding badge,
+   highlights the lines findings point at, and can force the open state. */
 "use client";
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Icon } from "@devdigest/ui";
+import { Badge, Icon, SeverityBadge } from "@devdigest/ui";
 import type { PrFile } from "@/lib/types";
 import { AUTO_EXPAND_MAX_LINES } from "../constants";
 import { parsePatch, type Line } from "../helpers";
@@ -15,6 +17,7 @@ import {
   type CommentThread,
   type DiffCommentApi,
 } from "../comments";
+import { worstSeverity, type DiffAnnotation } from "../annotations";
 import { s, chevronFor } from "../styles";
 import { CodeLine } from "../CodeLine";
 import { OutdatedComments } from "../OutdatedComments";
@@ -30,12 +33,79 @@ function threadsForLine(ln: Line, matched: Map<string, CommentThread[]>): Commen
   return out;
 }
 
-export function FileCard({ file, commenting }: { file: PrFile; commenting?: DiffCommentApi }) {
+export function FileCard({
+  file,
+  commenting,
+  annotation,
+  onOpenChange,
+  reveal,
+}: {
+  file: PrFile;
+  commenting?: DiffCommentApi;
+  annotation?: DiffAnnotation;
+  /** Reports a MANUAL fold/unfold, so the owner can remember it for the session. */
+  onOpenChange?: (path: string, open: boolean) => void;
+  /** Jump-to-line request for THIS file (already filtered by path upstream). */
+  reveal?: { line: number | null; token: number } | null;
+}) {
   const t = useTranslations("shell");
+  // An annotation's `defaultOpen` wins over the size rule: Smart Diff knows
+  // which files are generated boilerplate, and no line count implies that.
   const [open, setOpen] = React.useState(
-    (file.additions ?? 0) + (file.deletions ?? 0) <= AUTO_EXPAND_MAX_LINES
+    annotation?.defaultOpen ?? (file.additions ?? 0) + (file.deletions ?? 0) <= AUTO_EXPAND_MAX_LINES
   );
   const lines = React.useMemo(() => parsePatch(file.patch), [file.patch]);
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+
+  // Jump-to-finding: open the card, centre the target row, pulse it. The
+  // scroll waits a tick so the body exists when the card was collapsed. A line
+  // the patch doesn't contain degrades to centring the card itself — the
+  // finding card already carries the "not in this diff" mark. Shared by the
+  // external reveal request and the header's finding-badge click.
+  const [flashLine, setFlashLine] = React.useState<number | null>(null);
+  const jumpTimers = React.useRef<number[]>([]);
+  const jumpToLine = React.useCallback((line: number | null) => {
+    setOpen(true);
+    jumpTimers.current.forEach((id) => window.clearTimeout(id));
+    const scroll = window.setTimeout(() => {
+      const row =
+        line != null ? rootRef.current?.querySelector(`[data-new-line="${line}"]`) : null;
+      (row ?? rootRef.current)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (row) setFlashLine(line);
+    }, 60);
+    const clear = window.setTimeout(() => setFlashLine(null), 2100);
+    jumpTimers.current = [scroll, clear];
+  }, []);
+  React.useEffect(() => {
+    if (reveal) jumpToLine(reveal.line);
+    return () => jumpTimers.current.forEach((id) => window.clearTimeout(id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal?.token]);
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    onOpenChange?.(file.path, next);
+  };
+
+  // Findings anchor to NEW-side line numbers, which is what `newNo` carries.
+  const findingLines = annotation?.findingLines;
+  const findingLineSet = React.useMemo(() => new Set(findingLines ?? []), [findingLines]);
+  const severity = worstSeverity(annotation?.severities);
+
+  // Clicking the finding badge jumps to the finding lines (cycling through
+  // them on repeat clicks) instead of bubbling into the header's fold toggle.
+  const sortedFindingLines = React.useMemo(
+    () => [...new Set(findingLines ?? [])].sort((a, b) => a - b),
+    [findingLines],
+  );
+  const nextFinding = React.useRef(0);
+  const onFindingBadgeClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const line = sortedFindingLines[nextFinding.current % sortedFindingLines.length]!;
+    nextFinding.current += 1;
+    jumpToLine(line);
+  };
 
   // Group this file's comments into threads, then split into ones we can anchor
   // to a rendered line vs. "outdated" (GitHub dropped the line / it's not here).
@@ -53,8 +123,8 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
     : 0;
 
   return (
-    <div style={s.fileCard}>
-      <div onClick={() => setOpen((o) => !o)} style={s.fileHeader}>
+    <div ref={rootRef} style={s.fileCard}>
+      <div onClick={toggle} style={s.fileHeader}>
         <Icon.ChevronRight size={13} style={chevronFor(open)} />
         <Icon.FileText size={14} style={s.fileIcon} />
         <span className="mono" style={s.filePath}>
@@ -64,6 +134,27 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
           <span style={s.addText}>+{file.additions}</span>{" "}
           <span style={s.delText}>−{file.deletions}</span>
         </span>
+        {annotation?.tag && (
+          <Badge color={annotation.tag.color} bg={annotation.tag.bg}>
+            {annotation.tag.label}
+          </Badge>
+        )}
+        {/* Not `compact`: the compact badge drops the label and leaves colour
+            plus an icon carrying the meaning, which the kit's own note calls
+            out as the thing not to do. */}
+        {severity &&
+          (sortedFindingLines.length > 0 ? (
+            <button
+              type="button"
+              style={s.findingJump}
+              title={t("diffViewer.jumpToFinding")}
+              onClick={onFindingBadgeClick}
+            >
+              <SeverityBadge severity={severity} count={annotation?.severities?.length} />
+            </button>
+          ) : (
+            <SeverityBadge severity={severity} count={annotation?.severities?.length} />
+          ))}
         {commentCount > 0 && (
           <span
             style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-muted)" }}
@@ -89,6 +180,8 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
                 path={file.path}
                 threads={threadsForLine(ln, matched)}
                 commenting={commenting}
+                finding={ln.newNo != null && findingLineSet.has(ln.newNo)}
+                flash={flashLine != null && ln.newNo === flashLine}
               />
             ))
           )}

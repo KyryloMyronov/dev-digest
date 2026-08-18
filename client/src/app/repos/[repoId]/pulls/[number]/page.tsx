@@ -1,7 +1,8 @@
 /* PR Detail — /repos/:repoId/pulls/:number. F2 shell extended by A2 with:
    - Findings panel (VerdictBanner + FindingCards)
    - RunReviewDropdown (run all / a specific agent) + live SSE RunStatus
-   - Basic file-by-file diff viewer in the Files tab
+   - Basic file-by-file diff viewer in the Files tab, grouped by review role and
+     annotated with the run's findings by L03's Smart Diff
    Tab state lives in query (?tab). */
 "use client";
 
@@ -14,15 +15,17 @@ import { PrDetailHeader } from "./_components/PrDetailHeader";
 import { OverviewTab } from "./_components/OverviewTab";
 import { FindingsTab } from "./_components/FindingsTab";
 import { DiffTab } from "./_components/DiffTab";
+import { diffLineIndex, findingInDiff } from "./_components/DiffTab/helpers";
 import RunTraceDrawer from "./_components/RunTraceDrawer";
 import { usePullDetail, usePulls } from "../../../../../lib/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePrReviews, useCancelRun, usePrActiveRuns, usePrRuns, useDeleteRun } from "../../../../../lib/hooks/reviews";
-import { intentKeys, runKeys } from "../../../../../lib/hooks/keys";
+import { intentKeys, pullKeys, runKeys } from "../../../../../lib/hooks/keys";
 import { useActiveRepo, useRepoNotFound } from "../../../../../lib/repo-context";
 import { ApiError } from "../../../../../lib/api";
 import { githubPrUrl } from "../../../../../lib/github-urls";
 import type { FindingRecord } from "@devdigest/shared";
+import type { DiffReveal } from "@/components/diff-viewer";
 
 export default function PRDetailPage() {
   const params = useParams<{ repoId: string; number: string }>();
@@ -38,7 +41,12 @@ export default function PRDetailPage() {
   const { data: pr, isLoading: detailLoading, isError, error, refetch } = usePullDetail(prId);
 
   const isLoading = pullsLoading || (prId != null && detailLoading);
-  const { data: reviews, refetch: refetchReviews } = usePrReviews(prId);
+  const {
+    data: reviews,
+    isPending: reviewsPending,
+    isError: reviewsFailed,
+    refetch: refetchReviews,
+  } = usePrReviews(prId);
 
   // Live run tracking is SERVER-SOURCED (agent_runs status='running'): survives
   // navigation AND reload, and self-clears via polling when runs finish.
@@ -65,6 +73,17 @@ export default function PRDetailPage() {
   const invalidateIntent = () => {
     if (prId) qc.invalidateQueries({ queryKey: intentKeys.byPr(prId) });
   };
+  // A settled run also changes which diff lines carry a finding, which is what
+  // the Files tab highlights — refresh the Smart Diff alongside the reviews.
+  const invalidateSmartDiff = () => {
+    if (prId) qc.invalidateQueries({ queryKey: pullKeys.smartDiff(prId) });
+  };
+
+  // Jump-to-finding: page-owned, because the request crosses tabs (a click on
+  // the Findings tab must land on the Files tab after it mounts). The token
+  // re-triggers an identical jump; the state never reaches the URL — reloading
+  // into a half-finished scroll would be noise, not navigation.
+  const [diffReveal, setDiffReveal] = React.useState<DiffReveal | null>(null);
 
   const tab = search.get("tab") ?? "overview";
   const traceRunId = search.get("trace");
@@ -75,6 +94,10 @@ export default function PRDetailPage() {
     router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
   };
   const setTab = (t: string) => setParam("tab", t);
+  const jumpToFinding = (f: FindingRecord) => {
+    setDiffReveal((prev) => ({ path: f.file, line: f.start_line ?? null, token: (prev?.token ?? 0) + 1 }));
+    setTab("diff");
+  };
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -83,6 +106,9 @@ export default function PRDetailPage() {
     [reviews],
   );
   const lethalTrifecta = allFindings.filter((f) => f.kind === "lethal_trifecta");
+  // New-side lines present in the diff — a finding outside this set gets the
+  // attention mark on its card instead of a jump that can't land anywhere.
+  const diffIndex = React.useMemo(() => diffLineIndex(pr?.files ?? []), [pr?.files]);
   const findingsCount = allFindings.length;
 
   const repoName = activeRepo?.full_name ?? repoId;
@@ -166,8 +192,11 @@ export default function PRDetailPage() {
               invalidateActiveRuns();
               invalidateRunHistory();
               invalidateIntent();
+              invalidateSmartDiff();
               refetchReviews();
             }}
+            onJumpToDiff={jumpToFinding}
+            findingInDiff={(f) => findingInDiff(f, diffIndex)}
           />
         )}
 
@@ -177,6 +206,10 @@ export default function PRDetailPage() {
             filesCount={pr.files_count}
             files={pr.files}
             canComment={pr.status === "open"}
+            reviews={runs}
+            reviewsPending={reviewsPending}
+            reviewsFailed={reviewsFailed}
+            reveal={diffReveal}
           />
         )}
       </div>

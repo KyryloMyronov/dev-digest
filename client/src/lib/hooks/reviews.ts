@@ -3,7 +3,7 @@
 "use client";
 
 import React from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, API_BASE } from "../api";
 import { notify } from "../toast";
 import type {
@@ -14,7 +14,19 @@ import type {
   RunEvent,
   RunSummary,
 } from "@devdigest/shared";
-import { reviewKeys, runKeys, prCommentKeys } from "./keys";
+import { pullKeys, reviewKeys, runKeys, prCommentKeys } from "./keys";
+
+/**
+ * Anything that changes a PR's findings also changes the Smart Diff overlay —
+ * `finding_lines` on `GET /pulls/:id/smart-diff` is derived from them, and a
+ * dismissed finding must stop highlighting its line. The two keys share no
+ * prefix (see `keys.ts`), so both are invalidated explicitly; miss the second
+ * and the diff keeps painting lines the Findings tab no longer shows.
+ */
+function invalidateFindings(qc: QueryClient, prId: string | null | undefined): void {
+  qc.invalidateQueries({ queryKey: reviewKeys.byPr(prId) });
+  qc.invalidateQueries({ queryKey: pullKeys.smartDiff(prId) });
+}
 
 // ---- Active (in-flight) runs — server-side source of truth ----
 export interface ActiveRun {
@@ -66,7 +78,7 @@ export function useDeleteRun(prId: string | null | undefined) {
     // both the timeline and the Review Runs list from cache.
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: runKeys.byPr(prId) });
-      qc.invalidateQueries({ queryKey: reviewKeys.byPr(prId) });
+      invalidateFindings(qc, prId);
     },
   });
 }
@@ -83,7 +95,7 @@ export function useDeleteReview(prId: string | null | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (reviewId: string) => api.del<{ ok: boolean }>(`/reviews/${reviewId}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: reviewKeys.byPr(prId) }),
+    onSuccess: () => invalidateFindings(qc, prId),
   });
 }
 
@@ -131,7 +143,7 @@ export function useRunReview() {
         ...(all ? { all } : {}),
       }),
     onSuccess: (_d, { prId }) => {
-      qc.invalidateQueries({ queryKey: reviewKeys.byPr(prId) });
+      invalidateFindings(qc, prId);
     },
   });
 }
@@ -156,7 +168,7 @@ export function useFindingAction() {
         reply ? { reply } : undefined,
       ),
     onSuccess: (_d, { prId }) => {
-      if (prId) qc.invalidateQueries({ queryKey: reviewKeys.byPr(prId) });
+      if (prId) invalidateFindings(qc, prId);
     },
   });
 }

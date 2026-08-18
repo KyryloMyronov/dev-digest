@@ -4,12 +4,14 @@ import type {
   PrDetail,
   PrMeta,
   PrReviewComment,
+  SmartDiffResponse,
 } from '@devdigest/shared';
 import type { Container } from '../../platform/container.js';
 import type { Logger } from '../../platform/logger.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
 import { PullsRepository, type PullRow, type RepoRow } from './repository.js';
 import { prRowToDetail, prRowToMeta } from './helpers.js';
+import { buildSmartDiff, latestReviewPerAgent } from './smart-diff.js';
 import { DIFF_STAT_BACKFILL_LIMIT } from './constants.js';
 
 /**
@@ -201,6 +203,45 @@ export class PullsService {
       ]);
       return prRowToDetail(pr, files, commits);
     }
+  }
+
+  // ===========================================================================
+  // GET /pulls/:id/smart-diff  (L03)
+  // ===========================================================================
+
+  /**
+   * The PR's changed files grouped by review role, plus a split suggestion.
+   *
+   * Reads the SAME two facts the studio already has endpoints for — the
+   * persisted changed files (`GET /pulls/:id`) and the PR's findings
+   * (`GET /pulls/:id/reviews`) — and turns them into the grouping with a pure,
+   * deterministic classifier. No model call: see `smart-diff.ts` for why.
+   *
+   * Only each agent's CURRENT review counts: a superseded pass must not keep
+   * highlighting lines the re-review no longer flags. `latestReviewPerAgent`
+   * owns that rule, and owns it per agent rather than per PR because one
+   * "run all agents" request writes several reviews at once.
+   *
+   * Files are read from the DB rather than refetched, because the diff view has
+   * already called `GET /pulls/:id` by the time it asks for this and that call
+   * persists them; a second GitHub round-trip per page view would buy nothing.
+   * The one case that would surprise a caller is a PR whose detail was never
+   * fetched, so that single case falls back to a full detail import.
+   */
+  async getSmartDiff(workspaceId: string, prId: string): Promise<SmartDiffResponse> {
+    const pr = await this.repo.findPull(workspaceId, prId);
+    if (!pr) throw new NotFoundError('Pull request not found');
+
+    let files = await this.repo.listFiles(pr.id);
+    if (files.length === 0) {
+      // Never imported (or a genuinely empty PR). getDetail imports and
+      // persists when GitHub is reachable, and degrades quietly when it is not.
+      await this.getDetail(workspaceId, prId);
+      files = await this.repo.listFiles(pr.id);
+    }
+
+    const findings = await this.repo.findingsWithReviewByPr(pr.id);
+    return buildSmartDiff(files, latestReviewPerAgent(findings));
   }
 
   // ===========================================================================

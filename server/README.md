@@ -65,7 +65,7 @@ Each module owns its routes (`modules/<name>/routes.ts`). Grouped by domain:
 flowchart TB
   subgraph Repos_PRs["Repos & PRs"]
     repos["repos<br/>/repos"]
-    pulls["pulls<br/>/pulls/:id · /pulls/:id/comments"]
+    pulls["pulls<br/>/pulls/:id · /pulls/:id/comments<br/>/pulls/:id/smart-diff"]
     polling["polling<br/>/repos/:id/poll"]
   end
   subgraph Review["Review & runs"]
@@ -175,6 +175,36 @@ What the reviewer actually sends to the model is assembled in
     model config would mean three billed derivations.
   - Tests that trigger a review must override the **openrouter** provider too, or
     the intent call resolves a real one — see `test/helpers/intent.ts`.
+- **Smart Diff is deterministic, and that is the design** (L03,
+  `modules/pulls/smart-diff.ts`). `GET /pulls/:id/smart-diff` groups a PR's
+  changed files into `core` (business logic), `wiring` (configs, barrels, docs)
+  and `boilerplate` (lock files, build output, snapshots), attaches the lines its
+  findings point at, and flags a PR that is too big to review in one sitting.
+  Four properties worth knowing:
+  - **No model call, ever.** Classification is path rules over data the DB
+    already holds — the PR's `pr_files` plus its findings — so the answer is
+    free, identical on every call, and correct with no provider key configured.
+    A grouping that cost a request per page view, or drifted between two loads of
+    the same PR, would not be worth having.
+  - **It reads, it never imports.** Files come from the DB rather than GitHub,
+    because the diff view has already called `GET /pulls/:id` (which persists
+    them) by the time it asks. Only a PR whose detail was never fetched falls
+    back to a full detail import.
+  - **`too_big` ignores boilerplate.** A 6 000-line lock-file bump is not a large
+    PR to review; `total_lines` still reports the honest total, which is what the
+    studio's banner shows.
+  - **Only each agent's CURRENT review counts.** `finding_lines` comes from the
+    latest review *per agent* (`latestReviewPerAgent`), so a re-review supersedes
+    that agent's previous findings while leaving the other agents' newest
+    reviews alone. Per agent rather than per PR because one
+    `POST /pulls/:id/review {all:true}` writes several reviews within
+    milliseconds — the newest row alone would keep one agent and silently drop
+    the rest. Ties on `created_at` break on review id: arbitrary, but stable
+    across reads, so the highlighted lines don't flicker. Dismissed findings are
+    excluded throughout; accepted ones stay.
+  - This is the repo's first route with a Zod `response` schema
+    (`response: { 200: SmartDiffResponse }`), so a payload that drifts from the
+    contract fails at serialization instead of reaching the studio.
 
 ## Testing
 

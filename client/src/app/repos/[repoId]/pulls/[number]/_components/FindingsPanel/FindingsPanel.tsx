@@ -17,11 +17,17 @@ export function FindingsPanel({
   prId,
   repoFullName,
   headSha,
+  onJumpToDiff,
+  findingInDiff,
 }: {
   findings: FindingRecord[];
   prId: string;
   repoFullName?: string | null;
   headSha?: string | null;
+  /** Jump a finding to its line on the Files-changed tab (L03 · Smart Diff). */
+  onJumpToDiff?: (f: FindingRecord) => void;
+  /** Whether a finding's anchor line is actually present in the diff. */
+  findingInDiff?: (f: FindingRecord) => boolean;
 }) {
   const t = useTranslations("prReview");
   const action = useFindingAction();
@@ -68,6 +74,8 @@ export function FindingsPanel({
               repoFullName={repoFullName}
               headSha={headSha}
               onAction={(act) => action.mutate({ findingId: f.id, action: act, prId })}
+              onJumpToDiff={onJumpToDiff && (() => onJumpToDiff(f))}
+              inDiff={findingInDiff ? findingInDiff(f) : undefined}
             />
           ))
         )}

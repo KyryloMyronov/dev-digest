@@ -48,6 +48,9 @@ export const repoKeys = {
 export const pullKeys = {
   listByRepo: (repoId: Id) => ["pulls", repoId] as const,
   detail: (prId: Id) => ["pull", prId] as const,
+  /** L03 · Smart Diff — the PR's files grouped by review role. Its own root, so
+      it is never swept by an invalidation of the detail or the list. */
+  smartDiff: (prId: Id) => ["pull-smart-diff", prId] as const,
 };
 
 export const contextKeys = {

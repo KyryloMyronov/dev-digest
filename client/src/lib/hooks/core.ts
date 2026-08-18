@@ -17,6 +17,7 @@ import type {
   PrDetail,
   SpecFile,
   IndexStatus,
+  SmartDiff,
 } from "../types";
 import {
   settingsKeys,
@@ -123,6 +124,25 @@ export function usePullDetail(prId: string | number | null | undefined) {
   return useQuery({
     queryKey: pullKeys.detail(prId),
     queryFn: () => api.get<PrDetail>(`/pulls/${prId}`),
+    enabled: prId != null,
+  });
+}
+
+/**
+ * L03 · Smart Diff — the PR's changed files grouped by review role (core /
+ * wiring / boilerplate) with the lines its findings point at, plus a
+ * split suggestion for an over-large PR.
+ *
+ * Cheap and deterministic on the server (path rules over already-persisted
+ * files and findings — no model call, no GitHub round-trip), so it is fetched
+ * alongside the detail rather than behind a button. Findings change when a
+ * review run settles or a finding is dismissed, so this is invalidated with the
+ * reviews rather than cached long.
+ */
+export function useSmartDiff(prId: string | null | undefined) {
+  return useQuery({
+    queryKey: pullKeys.smartDiff(prId),
+    queryFn: () => api.get<SmartDiff>(`/pulls/${prId}/smart-diff`),
     enabled: prId != null,
   });
 }

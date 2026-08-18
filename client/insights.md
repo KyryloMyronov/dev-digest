@@ -14,6 +14,49 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-18 — vitest's jsdom has NO `window.localStorage`; code guarded by try/catch silently no-ops in tests
+
+**Rubric:** Tool & Library Notes
+**Symptom:** a per-PR persistence helper (`DiffTab/viewMode.ts`) worked in the
+browser but its test failed with `Cannot read properties of undefined (reading
+'clear')` on `window.localStorage.clear()` — and the write helper itself threw
+nothing, because its defensive try/catch swallowed the TypeError, so the
+round-trip just returned `null` as if nothing had been stored.
+**Cause:** the jsdom version in this repo (25.x) under vitest exposes no
+`localStorage` at all — `typeof window.localStorage === "undefined"` even
+though `window.location.href` is a proper `http://localhost:3000/`. It is not
+an origin problem; the API is simply absent in this environment.
+**Fix:** `src/test/setup.ts` now installs a minimal in-memory `Storage` stub
+(guarded, same pattern as the `ResizeObserver` stub above it) — state lives per
+test file, tests `window.localStorage.clear()` in `afterEach`. Two lessons:
+(1) don't debug localStorage tests as key-mismatch bugs, check
+`typeof window.localStorage` first; (2) a try/catch around storage access hides
+this completely — the code "passes" while persisting nothing.
+
+## 2026-08-18 — `SeverityBadge compact` renders colour and an icon with NO label, and the label it does render is mixed case
+
+**Rubric:** Tool & Library Notes
+**Symptom:** two failures in a row from one badge. First,
+`screen.getByText("CRITICAL")` found nothing after adding
+`<SeverityBadge severity={severity} count={n} compact />` to the diff's file
+header — the badge was on screen and visibly red. Removing `compact` still
+failed, on the same assertion. The component renders; the text does not exist.
+**Cause:** two separate facts about `src/vendor/ui/primitives/Badge.tsx`.
+`compact` maps to `{compact ? null : s.label}` (`Badge.tsx:80`), so the compact
+variant drops the label entirely and leaves colour + icon carrying the whole
+meaning — which the file's own comment ("always icon + label (WCAG AA: never
+color alone)", `:51`) says not to do. And the label itself is
+`SEV[severity].label` = **`"Critical"` / `"Warning"` / `"Suggestion"`**
+(`primitives/tokens.ts:10-13`); the all-caps look is `textTransform: uppercase`,
+a CSS effect that never reaches the DOM. Same trap in `CAT` (lowercase labels).
+**Fix:** don't pass `compact` when the badge is the only thing naming the
+severity — it is for a dense row where a neighbouring element already says it.
+In RTL, assert on the mixed-case label (`getByText("Critical")`), and read
+`tokens.ts` rather than the rendered screenshot for any kit label. The general
+rule: a `textTransform`/`letterSpacing` style means the visible string and the
+DOM string differ, so every kit component styled that way needs its label
+checked at the source before it goes into an assertion.
+
 ## 2026-08-17 — the `keys.ts` header comment teaches a `reviewKeys.all` that does not exist
 
 **Rubric:** What Doesn't Work
