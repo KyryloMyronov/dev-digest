@@ -2,8 +2,11 @@ import { buildApp } from './app.js';
 import { loadConfig } from './platform/config.js';
 
 /** Production/dev entrypoint. `pnpm dev` runs `tsx watch src/server.ts`. */
+// This is the main function that starts the server.
 async function main() {
+  // Load the config.
   const config = loadConfig();
+  // Build the app.
   const app = await buildApp({ config });
 
   // Graceful shutdown: on SIGTERM/SIGINT close the server, which runs the
@@ -34,4 +37,5 @@ async function main() {
   }
 }
 
+// Call the main function.
 main();
