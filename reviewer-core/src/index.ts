@@ -56,6 +56,13 @@ export {
   type ToReviewOptions,
 } from './output/to-review.js';
 
+// Output: grounded findings → short natural-language comment suggestions.
+export {
+  suggestComments,
+  summarizeSuggestions,
+  type CommentSuggestion,
+} from './output/suggest-comments.js';
+
 // The single OpenAI-compatible structured provider (OpenRouter), shared by the
 // CI runner and the server's openrouter path. Owns session grouping + guards.
 export { OpenRouterProvider, type OpenRouterProviderOptions } from './llm/openrouter.js';
