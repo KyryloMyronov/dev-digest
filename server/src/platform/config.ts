@@ -32,6 +32,12 @@ const EnvSchema = z.object({
   // NODE_ENV=production, because prompt shape is operational detail that has no
   // business in a production log stream.
   PROMPT_LOG_VERBOSE: z.string().optional(),
+  // Completion cap (`max_tokens`) for LLM calls that don't set their own.
+  // Without an explicit cap OpenRouter reserves the model's FULL output window
+  // against the account balance and 402s low-credit accounts pre-flight.
+  // Lower this if runs still fail with "requires more credits, or fewer
+  // max_tokens"; raise it if reviews come back truncated.
+  LLM_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(8192),
   API_PORT: z.coerce.number().int().default(3001),
   WEB_PORT: z.coerce.number().int().default(3000),
   DEVDIGEST_CLONE_DIR: z.string().optional(),
@@ -52,6 +58,8 @@ export type AppConfig = {
   cloneDir: string;
   /** Absolute path to the writable secrets store (BYO keys from the UI). */
   secretsPath: string;
+  /** Default `max_tokens` for LLM calls that don't set their own. */
+  llmMaxOutputTokens: number;
   nodeEnv: 'development' | 'test' | 'production';
   logLevel: string;
   /** Allowed CORS origin for the Next.js dev server. */
@@ -90,6 +98,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     webPort: parsed.WEB_PORT,
     cloneDir,
     secretsPath: join(homedir(), '.devdigest', 'secrets.json'),
+    llmMaxOutputTokens: parsed.LLM_MAX_OUTPUT_TOKENS,
     nodeEnv: parsed.NODE_ENV,
     logLevel: parsed.LOG_LEVEL ?? (parsed.NODE_ENV === 'test' ? 'silent' : 'info'),
     webOrigin: `http://localhost:${parsed.WEB_PORT}`,

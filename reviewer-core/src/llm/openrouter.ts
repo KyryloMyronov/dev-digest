@@ -34,7 +34,18 @@ export interface OpenRouterProviderOptions {
   maxRetries?: number;
   /** Injected cost estimator; returns USD or null when the model is unknown. */
   estimateCost?: (model: string, tokensIn: number, tokensOut: number) => number | null;
+  /**
+   * Completion cap sent when a request carries no `maxTokens` of its own.
+   * Never omit `max_tokens` to OpenRouter: without it, OpenRouter reserves the
+   * model's FULL output capacity (e.g. 65536) against the account balance and
+   * pre-flight rejects with 402 "requires more credits, or fewer max_tokens"
+   * even though the actual completion would cost a fraction of that.
+   */
+  defaultMaxTokens?: number;
 }
+
+/** Generous for any structured output this engine emits (~32 KB of JSON). */
+const DEFAULT_MAX_TOKENS = 8192;
 
 export class OpenRouterProvider implements LLMProvider {
   readonly id: 'openai' | 'openrouter';
@@ -42,12 +53,14 @@ export class OpenRouterProvider implements LLMProvider {
   private baseURL: string;
   private apiKey: string;
   private estimateCost?: OpenRouterProviderOptions['estimateCost'];
+  private defaultMaxTokens: number;
 
   constructor(apiKey: string, opts: OpenRouterProviderOptions = {}) {
     this.id = opts.id ?? 'openrouter';
     this.apiKey = apiKey;
     this.baseURL = opts.baseURL ?? 'https://openrouter.ai/api/v1';
     this.estimateCost = opts.estimateCost;
+    this.defaultMaxTokens = opts.defaultMaxTokens ?? DEFAULT_MAX_TOKENS;
     this.client = new OpenAI({
       apiKey,
       baseURL: this.baseURL,
@@ -70,7 +83,7 @@ export class OpenRouterProvider implements LLMProvider {
         model: req.model,
         messages,
         temperature: req.temperature ?? 0,
-        ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+        max_tokens: req.maxTokens ?? this.defaultMaxTokens,
         response_format: {
           type: 'json_schema',
           json_schema: { name: req.schemaName, schema: jsonSchema.schema, strict: true },

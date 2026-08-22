@@ -17,6 +17,7 @@ import { FindingsTab } from "./_components/FindingsTab";
 import { DiffTab } from "./_components/DiffTab";
 import { diffLineIndex, findingInDiff } from "./_components/DiffTab/helpers";
 import RunTraceDrawer from "./_components/RunTraceDrawer";
+import { FindingsModal } from "../_components/FindingsModal";
 import { usePullDetail, usePulls } from "../../../../../lib/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePrReviews, useCancelRun, usePrActiveRuns, usePrRuns, useDeleteRun } from "../../../../../lib/hooks/reviews";
@@ -25,6 +26,7 @@ import { useActiveRepo, useRepoNotFound } from "../../../../../lib/repo-context"
 import { ApiError } from "../../../../../lib/api";
 import { githubPrUrl } from "../../../../../lib/github-urls";
 import type { FindingRecord } from "@devdigest/shared";
+import type { PrFindingCounts, Severity } from "@/lib/types";
 import type { DiffReveal } from "@/components/diff-viewer";
 
 export default function PRDetailPage() {
@@ -110,6 +112,16 @@ export default function PRDetailPage() {
   // attention mark on its card instead of a jump that can't land anywhere.
   const diffIndex = React.useMemo(() => diffLineIndex(pr?.files ?? []), [pr?.files]);
   const findingsCount = allFindings.length;
+  // Header counters derive from the same ["reviews", prId] query the modal
+  // reads, so a counter can never disagree with the list it opens.
+  const findingCounts = React.useMemo<PrFindingCounts>(() => {
+    const counts: PrFindingCounts = { CRITICAL: 0, WARNING: 0, SUGGESTION: 0 };
+    for (const f of allFindings) counts[f.severity] += 1;
+    return counts;
+  }, [allFindings]);
+  // The per-severity findings modal is page-owned, same as on the PR list —
+  // rendered as a sibling of the content, never inside the element that opens it.
+  const [findingsSeverity, setFindingsSeverity] = React.useState<Severity | null>(null);
 
   const repoName = activeRepo?.full_name ?? repoId;
   // The real "owner/repo" (null until the repo is loaded) — used to build
@@ -162,8 +174,10 @@ export default function PRDetailPage() {
         prId={prId}
         tab={tab}
         findingsCount={findingsCount}
+        findingCounts={findingCounts}
         githubUrl={repoFullName ? githubPrUrl(repoFullName, pr.number) : null}
         onSetTab={setTab}
+        onOpenFindings={setFindingsSeverity}
         onRunStart={() => setTab("findings")}
         onRunsStarted={() => invalidateActiveRuns()}
       />
@@ -213,6 +227,16 @@ export default function PRDetailPage() {
           />
         )}
       </div>
+
+      {findingsSeverity && (
+        <FindingsModal
+          // The detail contract leaves `id` nullish; the page has already
+          // resolved it, and the modal needs it for its reviews query.
+          pr={{ ...pr, id: pr.id ?? prId }}
+          severity={findingsSeverity}
+          onClose={() => setFindingsSeverity(null)}
+        />
+      )}
 
       {prId && traceRunId && (
         <RunTraceDrawer

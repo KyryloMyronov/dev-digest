@@ -9,7 +9,7 @@ lesson roadmap. **Read that before designing anything; it is not repeated here.*
 | | |
 |---|---|
 | Runtime | Node ≥ 22 · TypeScript 5.7 · ESM everywhere |
-| Package managers | **pnpm 11** in `server/`, `client/` · **npm** in `reviewer-core/`, `e2e/` |
+| Package managers | **pnpm 11** in `server/`, `client/` · **npm** in `reviewer-core/`, `mcp/`, `e2e/` |
 | API | Fastify 5 · Zod 3 · `fastify-type-provider-zod` 4 · Pino |
 | DB | Postgres 16 + pgvector (Docker) · Drizzle ORM 0.38 · drizzle-kit 0.30 · postgres.js 3.4 |
 | Web | Next.js 15 (App Router) · React 19 · TanStack Query 5 · Tailwind 4 |
@@ -39,6 +39,7 @@ Ports: web **3000** · API **3001** · Postgres **5432**. Hermetic e2e: 3100/310
 server/         @devdigest/api — Fastify, Postgres, adapters, jobs        :3001
 client/         @devdigest/web — Next.js studio                          :3000
 reviewer-core/  @devdigest/reviewer-core — pure review engine, no I/O
+mcp/            @devdigest/mcp — MCP server (stdio), fronts the REST API
 e2e/            @devdigest/e2e — deterministic browser flows
 docs/           cross-cutting docs (agent-prompt authoring)
 scripts/        dev.sh, e2e.sh
@@ -65,12 +66,12 @@ entry; supersede it with a new one instead. Full procedure and the seven rubrics
 
 ## Non-default conventions
 
-- **Four standalone packages, NOT a pnpm workspace.** Each has its own
+- **Five standalone packages, NOT a pnpm workspace.** Each has its own
   `package.json` and lockfile. Cross-package code is shared as TypeScript
   **source** through tsconfig path aliases — there is no build or publish step
   for shared code. Never `pnpm add` one local package into another.
 - **Two package managers on purpose.** `server`/`client` use pnpm;
-  `reviewer-core`/`e2e` use npm (`package-lock.json`). Don't unify them without
+  `reviewer-core`/`mcp`/`e2e` use npm (`package-lock.json`). Don't unify them without
   reading `scripts/dev.sh:77-80`.
 - **`@devdigest/shared` is canonical at `server/src/vendor/shared/`.**
   `client/src/vendor/shared/` is a **hand-synced copy**. A contract change must

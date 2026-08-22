@@ -210,6 +210,7 @@ export class Container {
       return new OpenRouterProvider(key, {
         estimateCost: (model, tokensIn, tokensOut) =>
           this.modelCatalog.estimate(model, tokensIn, tokensOut),
+        defaultMaxTokens: this.config.llmMaxOutputTokens,
       });
     }
     const key = await this.secrets.get('ANTHROPIC_API_KEY');
