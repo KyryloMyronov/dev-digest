@@ -4,6 +4,7 @@
 "use client";
 
 import React from "react";
+import type { Severity } from "../../../lib/types";
 import { commentTargetFor, type CommentThread, type DiffCommentApi, cs } from "../comments";
 import { type Line } from "../helpers";
 import { s, findingRowFor, lineRowFor, lineSignFor } from "../styles";
@@ -22,8 +23,9 @@ export function CodeLine({
   path: string;
   threads: CommentThread[];
   commenting?: DiffCommentApi;
-  /** A review finding anchors to this line — render it as the eye-catch. */
-  finding?: boolean;
+  /** A review finding anchors to this line — render the eye-catch in the
+   *  finding's severity colour. Null/undefined = no finding on this line. */
+  finding?: Severity | null;
   /** This row is the target of a jump-to-finding — pulse it once. */
   flash?: boolean;
 }) {
@@ -50,10 +52,11 @@ export function CodeLine({
     >
       <div
         style={{
-          ...(finding ? findingRowFor(ln.kind) : lineRowFor(ln.kind)),
+          ...(finding ? findingRowFor(ln.kind, finding) : lineRowFor(ln.kind)),
           ...(flash ? { animation: "ddFlash 1.9s ease-out" } : null),
         }}
         data-finding-line={finding ? "true" : undefined}
+        data-finding-severity={finding ?? undefined}
         data-new-line={ln.newNo ?? undefined}
       >
         <span className="mono tnum" style={{ ...s.lineNo, position: "relative" }}>

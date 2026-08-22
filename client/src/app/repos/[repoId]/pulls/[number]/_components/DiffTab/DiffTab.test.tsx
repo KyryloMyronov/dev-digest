@@ -143,6 +143,8 @@ describe("DiffTab · Smart Diff", () => {
     const marked = container.querySelectorAll("[data-finding-line='true']");
     expect(marked).toHaveLength(1);
     expect(marked[0]).toHaveTextContent("const b = 2;");
+    // The row mark carries the finding's own severity, not a generic colour.
+    expect(marked[0]).toHaveAttribute("data-finding-severity", "CRITICAL");
     // Severity comes from the reviews the page already loaded, so the badge and
     // the Findings tab cannot disagree.
     // The kit renders the severity's own label ("Critical"), uppercased in CSS.
@@ -294,6 +296,40 @@ describe("DiffTab · file finding badge (click → jump to the line)", () => {
     await waitFor(() => expect(scrollSpy).toHaveBeenCalled());
     const target = scrollSpy.mock.contexts.at(-1) as HTMLElement;
     expect(target.getAttribute("data-new-line")).toBe("2");
+  });
+
+  it("shows one badge per severity with its own count, each jumping to its own findings", async () => {
+    // 1 critical + 2 warnings on one file must NOT read as "CRITICAL 3" — each
+    // severity gets its own badge, and each badge steps through its own lines.
+    smartDiff.data = {
+      ...GROUPED,
+      groups: [
+        {
+          role: "core",
+          files: [{ path: "src/a.ts", additions: 2, deletions: 0, finding_lines: [2, 3] }],
+        },
+      ],
+    };
+    renderTab([
+      review({
+        findings: [
+          FINDING,
+          { ...FINDING, id: "w1", severity: "WARNING", start_line: 3, end_line: 3 },
+          { ...FINDING, id: "w2", severity: "WARNING", start_line: 3, end_line: 3 },
+        ],
+      }),
+    ]);
+    expect(screen.getByText("Critical").textContent).toBe("Critical1");
+    expect(screen.getByText("Warning").textContent).toBe("Warning2");
+
+    // Badges render worst-first; the second is the warnings'. Clicking it must
+    // land on the warnings' line (3), not the critical's (2).
+    const badges = screen.getAllByTitle("Jump to the finding's line");
+    expect(badges).toHaveLength(2);
+    await userEvent.click(badges[1]!);
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalled());
+    const target = scrollSpy.mock.contexts.at(-1) as HTMLElement;
+    expect(target.getAttribute("data-new-line")).toBe("3");
   });
 });
 

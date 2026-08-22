@@ -151,6 +151,33 @@ describe("buildAnnotations", () => {
   it("ignores a dismissed finding's severity", () => {
     const ann = buildAnnotations(SMART, [finding({ dismissed_at: "2026-08-18T00:00:00Z" })]);
     expect(ann["src/a.ts"]!.severities).toEqual([]);
+    expect(ann["src/a.ts"]!.lineSeverities).toEqual({});
+  });
+
+  it("gives each highlighted line the worst severity of the findings covering it", () => {
+    const ann = buildAnnotations(SMART, [
+      finding({ id: "f1", severity: "SUGGESTION", start_line: 4, end_line: 5 }),
+      finding({ id: "f2", severity: "CRITICAL", start_line: 5, end_line: 5 }),
+    ]);
+    // Line 4 is only the suggestion's; line 5 is hit by both, and the critical wins.
+    expect(ann["src/a.ts"]!.lineSeverities).toEqual({ 4: "SUGGESTION", 5: "CRITICAL" });
+  });
+
+  it("groups each finding's anchor line by its severity, for the per-severity badges", () => {
+    const ann = buildAnnotations(SMART, [
+      finding({ id: "f1", severity: "CRITICAL", start_line: 4, end_line: 4 }),
+      finding({ id: "f2", severity: "WARNING", start_line: 5, end_line: 5 }),
+      finding({ id: "f3", severity: "WARNING", start_line: 5, end_line: 5 }),
+    ]);
+    // One anchor per finding start line, deduped — clicking the WARNING badge
+    // steps through warnings only, never through the critical's line.
+    expect(ann["src/a.ts"]!.severityLines).toEqual({ CRITICAL: [4], WARNING: [5] });
+  });
+
+  it("joins a `./`-prefixed finding path onto its file, the way the server does", () => {
+    const ann = buildAnnotations(SMART, [finding({ file: "./src/a.ts", severity: "CRITICAL" })]);
+    expect(ann["src/a.ts"]!.severities).toEqual(["CRITICAL"]);
+    expect(ann["src/a.ts"]!.lineSeverities).toEqual({ 4: "CRITICAL", 5: "CRITICAL" });
   });
 
   it("keeps boilerplate shut and opens anything carrying a finding", () => {

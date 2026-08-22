@@ -74,8 +74,25 @@ export function currentFindings(reviews: ReviewRecord[]): FindingRecord[] {
 }
 
 /**
- * The per-file overlay the viewer renders: which lines to highlight, which
- * severity badge to show, and whether the card starts open.
+ * Findings and diffs disagree about leading `./` and `/` often enough that the
+ * server normalises both sides before joining them (`smart-diff.ts`); the
+ * severity join here must do the same, or a `./`-prefixed finding path leaves
+ * its file highlighted with no severity behind the highlight.
+ */
+function normalizePath(path: string): string {
+  return path.replace(/^\.?\//, "");
+}
+
+/** Worst first — a line hit by two findings shows the loudest one's colour. */
+const SEVERITY_RANK: Record<Severity, number> = { CRITICAL: 0, WARNING: 1, SUGGESTION: 2 };
+
+const worseOf = (a: Severity | undefined, b: Severity): Severity =>
+  a && SEVERITY_RANK[a] <= SEVERITY_RANK[b] ? a : b;
+
+/**
+ * The per-file overlay the viewer renders: which lines to highlight, the
+ * severity each highlighted line carries, which severity badge to show, and
+ * whether the card starts open.
  *
  * The highlighted lines come from the server (it holds the findings' anchor
  * ranges); the severities come from `currentFindings` above, so the two are
@@ -83,26 +100,55 @@ export function currentFindings(reviews: ReviewRecord[]): FindingRecord[] {
  * The Findings tab may legitimately show more than the badges do — it is the run
  * history, and it renders superseded passes on purpose.
  *
+ * `lineSeverities` maps each server-highlighted line to the worst severity of
+ * the findings whose range covers it, so the row mark matches the finding it
+ * points at. A line no range covers (the server caps very long ranges) is left
+ * out — the viewer falls back to the file's worst severity.
+ *
  * `defaultOpen` is only forced where the size rule gets it wrong: boilerplate
  * stays shut however small it is, and a file with findings opens however big it
  * is — the reason to be on this tab is to look at those lines.
  */
 export function buildAnnotations(smart: SmartDiff, findings: FindingRecord[]): DiffAnnotations {
-  const severitiesByPath = new Map<string, Severity[]>();
+  const findingsByPath = new Map<string, FindingRecord[]>();
   for (const f of findings) {
     if (f.dismissed_at) continue;
-    const list = severitiesByPath.get(f.file);
-    if (list) list.push(f.severity);
-    else severitiesByPath.set(f.file, [f.severity]);
+    const key = normalizePath(f.file);
+    const list = findingsByPath.get(key);
+    if (list) list.push(f);
+    else findingsByPath.set(key, [f]);
   }
 
   const out: Record<string, DiffAnnotations[string]> = {};
   for (const group of smart.groups) {
     for (const file of group.files) {
+      const fileFindings = findingsByPath.get(normalizePath(file.path)) ?? [];
+      const lineSeverities: Record<number, Severity> = {};
+      for (const line of file.finding_lines) {
+        for (const f of fileFindings) {
+          if (f.start_line == null) continue;
+          const end = Math.max(f.start_line, f.end_line ?? f.start_line);
+          if (line < f.start_line || line > end) continue;
+          lineSeverities[line] = worseOf(lineSeverities[line], f.severity);
+        }
+      }
+      // One anchor per finding (its start line), grouped by severity — the
+      // header badge steps through THESE, not through every highlighted line,
+      // so "next" means the next finding, not the next line of the same one.
+      const severityLines: Partial<Record<Severity, number[]>> = {};
+      for (const f of fileFindings) {
+        if (f.start_line == null) continue;
+        (severityLines[f.severity] ??= []).push(f.start_line);
+      }
+      for (const key of Object.keys(severityLines) as Severity[]) {
+        severityLines[key] = [...new Set(severityLines[key]!)].sort((a, b) => a - b);
+      }
       const hasFindings = file.finding_lines.length > 0;
       out[file.path] = {
         findingLines: file.finding_lines,
-        severities: severitiesByPath.get(file.path) ?? [],
+        severities: fileFindings.map((f) => f.severity),
+        lineSeverities,
+        severityLines,
         ...(group.role === "boilerplate"
           ? { defaultOpen: false }
           : hasFindings

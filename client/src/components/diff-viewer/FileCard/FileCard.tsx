@@ -7,7 +7,7 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Badge, Icon, SeverityBadge } from "@devdigest/ui";
-import type { PrFile } from "@/lib/types";
+import type { PrFile, Severity as SeverityLevel } from "@/lib/types";
 import { AUTO_EXPAND_MAX_LINES } from "../constants";
 import { parsePatch, type Line } from "../helpers";
 import {
@@ -17,7 +17,7 @@ import {
   type CommentThread,
   type DiffCommentApi,
 } from "../comments";
-import { worstSeverity, type DiffAnnotation } from "../annotations";
+import { severityCounts, worstSeverity, type DiffAnnotation } from "../annotations";
 import { s, chevronFor } from "../styles";
 import { CodeLine } from "../CodeLine";
 import { OutdatedComments } from "../OutdatedComments";
@@ -92,19 +92,38 @@ export function FileCard({
   const findingLines = annotation?.findingLines;
   const findingLineSet = React.useMemo(() => new Set(findingLines ?? []), [findingLines]);
   const severity = worstSeverity(annotation?.severities);
+  // Per-line severity for the row mark; a highlighted line the map doesn't
+  // know falls back to the file's worst severity, then to WARNING so the
+  // highlight never disappears just because the severity couldn't be resolved.
+  const lineSeverities = annotation?.lineSeverities;
+  const severityForLine = (newNo: number | null | undefined) =>
+    newNo != null && findingLineSet.has(newNo)
+      ? (lineSeverities?.[newNo] ?? severity ?? "WARNING")
+      : null;
 
-  // Clicking the finding badge jumps to the finding lines (cycling through
-  // them on repeat clicks) instead of bubbling into the header's fold toggle.
+  // One badge per severity present, worst first, each with its own count —
+  // "CRITICAL 9" for 1 critical + 8 warnings is exactly the misread this
+  // avoids. Clicking a badge jumps to that severity's findings (cycling
+  // through them on repeat clicks) instead of bubbling into the fold toggle.
+  const severityBadges = severityCounts(annotation?.severities);
   const sortedFindingLines = React.useMemo(
     () => [...new Set(findingLines ?? [])].sort((a, b) => a - b),
     [findingLines],
   );
-  const nextFinding = React.useRef(0);
-  const onFindingBadgeClick = (e: React.MouseEvent) => {
+  // The severity's own anchors when the annotation carries them; the plain
+  // highlighted-line list otherwise, so the jump never goes dead.
+  const linesFor = (sev: SeverityLevel): readonly number[] => {
+    const own = annotation?.severityLines?.[sev];
+    return own && own.length > 0 ? own : sortedFindingLines;
+  };
+  const nextFinding = React.useRef<Partial<Record<SeverityLevel, number>>>({});
+  const onFindingBadgeClick = (sev: SeverityLevel) => (e: React.MouseEvent) => {
     e.stopPropagation();
-    const line = sortedFindingLines[nextFinding.current % sortedFindingLines.length]!;
-    nextFinding.current += 1;
-    jumpToLine(line);
+    const lines = linesFor(sev);
+    if (lines.length === 0) return;
+    const i = nextFinding.current[sev] ?? 0;
+    nextFinding.current[sev] = i + 1;
+    jumpToLine(lines[i % lines.length]!);
   };
 
   // Group this file's comments into threads, then split into ones we can anchor
@@ -142,19 +161,21 @@ export function FileCard({
         {/* Not `compact`: the compact badge drops the label and leaves colour
             plus an icon carrying the meaning, which the kit's own note calls
             out as the thing not to do. */}
-        {severity &&
-          (sortedFindingLines.length > 0 ? (
+        {severityBadges.map(({ severity: sev, count }) =>
+          linesFor(sev).length > 0 ? (
             <button
+              key={sev}
               type="button"
               style={s.findingJump}
               title={t("diffViewer.jumpToFinding")}
-              onClick={onFindingBadgeClick}
+              onClick={onFindingBadgeClick(sev)}
             >
-              <SeverityBadge severity={severity} count={annotation?.severities?.length} />
+              <SeverityBadge severity={sev} count={count} />
             </button>
           ) : (
-            <SeverityBadge severity={severity} count={annotation?.severities?.length} />
-          ))}
+            <SeverityBadge key={sev} severity={sev} count={count} />
+          ),
+        )}
         {commentCount > 0 && (
           <span
             style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-muted)" }}
@@ -180,7 +201,7 @@ export function FileCard({
                 path={file.path}
                 threads={threadsForLine(ln, matched)}
                 commenting={commenting}
-                finding={ln.newNo != null && findingLineSet.has(ln.newNo)}
+                finding={severityForLine(ln.newNo)}
                 flash={flashLine != null && ln.newNo === flashLine}
               />
             ))

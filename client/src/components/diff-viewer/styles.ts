@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import type { Severity } from "../../lib/types";
 import type { Line } from "./helpers";
 
 /** Co-located styles for the DiffViewer (extracted from inline styles). */
@@ -92,21 +93,30 @@ export function lineRowFor(kind: Line["kind"]): CSSProperties {
   return { display: "flex", alignItems: "stretch", fontSize: 13, lineHeight: "20px", background };
 }
 
+/** The mark colours per finding severity — same tokens the SeverityBadge uses. */
+const SEVERITY_MARK: Record<Severity, { rule: string; wash: string }> = {
+  CRITICAL: { rule: "var(--crit)", wash: "var(--crit-bg)" },
+  WARNING: { rule: "var(--warn)", wash: "var(--warn-bg)" },
+  SUGGESTION: { rule: "var(--sugg)", wash: "var(--sugg-bg)" },
+};
+
 /**
- * A line a review finding points at. Deliberately a left rule + a wash rather
- * than a background swap: the add/del tint is what tells you whether the line
- * was added or removed, and a finding must not overwrite that fact.
+ * A line a review finding points at, coloured by that finding's severity.
+ * Deliberately a left rule + a wash rather than a background swap: the add/del
+ * tint is what tells you whether the line was added or removed, and a finding
+ * must not overwrite that fact.
  */
-export function findingRowFor(kind: Line["kind"]): CSSProperties {
+export function findingRowFor(kind: Line["kind"], severity: Severity = "WARNING"): CSSProperties {
+  const mark = SEVERITY_MARK[severity];
   return {
     ...lineRowFor(kind),
-    boxShadow: "inset 3px 0 0 0 var(--warn)",
+    boxShadow: `inset 3px 0 0 0 ${mark.rule}`,
     background:
       kind === "add"
         ? "var(--code-add)"
         : kind === "del"
           ? "var(--code-del)"
-          : "var(--warn-bg)",
+          : mark.wash,
   };
 }
 

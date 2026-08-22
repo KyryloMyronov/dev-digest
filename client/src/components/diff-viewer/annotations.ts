@@ -14,6 +14,17 @@ export interface DiffAnnotation {
   findingLines?: readonly number[];
   /** Severities of this file's findings — the header badge. */
   severities?: readonly Severity[];
+  /**
+   * Worst severity per highlighted line (new-side number), so the row's mark
+   * carries the finding's severity colour. A line in `findingLines` with no
+   * entry here falls back to the file's worst severity.
+   */
+  lineSeverities?: Readonly<Record<number, Severity>>;
+  /**
+   * Anchor lines (new-side start line) of this file's findings, per severity —
+   * what the header's per-severity badge steps through on click.
+   */
+  severityLines?: Readonly<Partial<Record<Severity, readonly number[]>>>;
   /** Overrides the size-based auto-expand (Smart Diff collapses boilerplate). */
   defaultOpen?: boolean;
   /** Small group tag on the file header (Smart Diff role label), so a collapsed
@@ -42,4 +53,20 @@ const SEVERITY_RANK: Record<Severity, number> = { CRITICAL: 0, WARNING: 1, SUGGE
 export function worstSeverity(severities: readonly Severity[] | undefined): Severity | null {
   if (!severities || severities.length === 0) return null;
   return [...severities].sort((a, b) => SEVERITY_RANK[a] - SEVERITY_RANK[b])[0]!;
+}
+
+/**
+ * Severities present, worst first, each with its own count — one header badge
+ * per entry. Lumping every finding under the worst severity's badge ("CRITICAL
+ * 9" for 1 critical + 8 warnings) is exactly the misread this avoids.
+ */
+export function severityCounts(
+  severities: readonly Severity[] | undefined,
+): { severity: Severity; count: number }[] {
+  if (!severities || severities.length === 0) return [];
+  const counts = new Map<Severity, number>();
+  for (const s of severities) counts.set(s, (counts.get(s) ?? 0) + 1);
+  return [...counts.entries()]
+    .sort((a, b) => SEVERITY_RANK[a[0]] - SEVERITY_RANK[b[0]])
+    .map(([severity, count]) => ({ severity, count }));
 }
