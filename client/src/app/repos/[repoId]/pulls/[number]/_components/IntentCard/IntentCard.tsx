@@ -64,9 +64,11 @@ export function IntentCard({ prId, headSha }: IntentCardProps) {
 
   if (isLoading) {
     return (
-      <section>
-        <SectionLabel icon="Target">{t("title")}</SectionLabel>
+      <section style={s.section}>
         <div style={s.box}>
+          <div style={s.boxLabel}>
+            <SectionLabel icon="Target">{t("title")}</SectionLabel>
+          </div>
           <Skeleton width="40%" height={12} />
           <Skeleton height={38} />
         </div>
@@ -76,25 +78,33 @@ export function IntentCard({ prId, headSha }: IntentCardProps) {
 
   if (error) {
     return (
-      <section>
-        <SectionLabel icon="Target">{t("title")}</SectionLabel>
-        <ErrorState title={t("errorTitle")} body={error.message} onRetry={() => void refetch()} />
+      <section style={s.section}>
+        <div style={s.box}>
+          <div style={s.boxLabel}>
+            <SectionLabel icon="Target">{t("title")}</SectionLabel>
+          </div>
+          <ErrorState title={t("errorTitle")} body={error.message} onRetry={() => void refetch()} />
+        </div>
       </section>
     );
   }
 
   if (!data) {
     return (
-      <section>
-        <SectionLabel icon="Target">{t("title")}</SectionLabel>
-        <EmptyState
-          icon="Target"
-          title={t("emptyTitle")}
-          body={t("emptyBody")}
-          cta={t("derive")}
-          onCta={startDerive}
-          ctaLoading={busy}
-        />
+      <section style={s.section}>
+        <div style={s.box}>
+          <div style={s.boxLabel}>
+            <SectionLabel icon="Target">{t("title")}</SectionLabel>
+          </div>
+          <EmptyState
+            icon="Target"
+            title={t("emptyTitle")}
+            body={t("emptyBody")}
+            cta={t("derive")}
+            onCta={startDerive}
+            ctaLoading={busy}
+          />
+        </div>
       </section>
     );
   }
@@ -103,9 +113,13 @@ export function IntentCard({ prId, headSha }: IntentCardProps) {
   const stale = !fresh;
 
   return (
-    <section>
-      <SectionLabel icon="Target">{t("title")}</SectionLabel>
+    <section style={s.section}>
+      {/* Label INSIDE the box, mirroring the Blast Radius card beside this one
+          on the Overview grid — both card tops sit on the same line. */}
       <div style={s.box}>
+        <div style={s.boxLabel}>
+          <SectionLabel icon="Target">{t("title")}</SectionLabel>
+        </div>
         <div style={s.headRow}>
           {data.change_type && (
             <Badge icon="Tag" color="var(--text-primary)">

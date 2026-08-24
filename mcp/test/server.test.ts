@@ -39,15 +39,17 @@ describe('devdigest MCP server', () => {
     }
   });
 
-  it('get_blast_radius answers with the not_implemented stub', async () => {
+  it('get_blast_radius degrades to an actionable isError when the API is down', async () => {
     const client = await connectedClient();
     const res = await client.callTool({
       name: 'get_blast_radius',
-      arguments: { repo: 'acme/web', files: ['a.ts'] },
+      arguments: { repo: 'acme/web', pr_number: 1 },
     });
+    // The tool fronts GET /pulls/:id/blast; no API runs on the test port, so
+    // the guarded handler must surface the reachability error, not crash.
+    expect(res.isError).toBe(true);
     const text = (res.content as { type: string; text: string }[])[0].text;
-    expect(res.isError).toBeFalsy();
-    expect(JSON.parse(text).status).toBe('not_implemented');
+    expect(text).toContain('not reachable');
   });
 
   it('surfaces an unreachable API as an actionable isError result', async () => {

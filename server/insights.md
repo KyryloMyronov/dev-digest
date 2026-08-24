@@ -14,6 +14,13 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-24 — blast answers `full` from the last-indexed SHA; caller lines can drift from the PR head the client links to
+
+**Rubric:** Open Questions
+**Symptom:** none yet — latent. During L04 verification, `GET /pulls/:id/blast` returned `status: 'full'` for a PR whose branch was 4 days newer than `repo_index_state.lastIndexedSha` (visible via `GET /repos/:id/index-state`). PR sync (`GET /pulls/:id`) refreshes `pr_files` but never the index.
+**Cause:** `getBlastRadius`/`getDependents` serve whatever SHA the indexer last stamped; `status` reflects index *completeness at that SHA*, not freshness relative to the PR. Meanwhile the client builds caller links with `githubBlobUrl(..., pr.head_sha, file, line)`, so a caller-file `line` from the stale index can point at the wrong line of the head blob when that caller file changed since indexing.
+**Fix:** none applied — constraint to know. When accuracy matters, compare `getIndexState().lastIndexedSha` with `pr.head_sha` (or its merge-base) and trigger `POST /repos/:id/resync`; a possible follow-up is surfacing `lastIndexedSha` in `BlastResponse.reason` when it trails the PR.
+
 ## 2026-08-18 — a Zod `response:` schema on a route works; the convention had zero adoption, not a blocker
 
 **Rubric:** What Works

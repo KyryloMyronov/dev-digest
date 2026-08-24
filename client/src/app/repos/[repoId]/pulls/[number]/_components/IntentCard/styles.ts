@@ -1,7 +1,16 @@
 import type { CSSProperties } from "react";
 
 export const s = {
+  /* The card fills its Overview grid cell so its edges line up with the Blast
+     Radius card beside it, whichever is taller. */
+  section: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    minWidth: 0,
+  } satisfies CSSProperties,
   box: {
+    flex: 1,
     border: "1px solid var(--border)",
     borderRadius: 8,
     background: "var(--bg-elevated)",
@@ -10,6 +19,9 @@ export const s = {
     flexDirection: "column",
     gap: 12,
   } satisfies CSSProperties,
+  /* SectionLabel carries its own 14px bottom margin; inside the box that
+     stacks with the flex gap, so cancel it here. */
+  boxLabel: { marginBottom: -14 } satisfies CSSProperties,
   headRow: {
     display: "flex",
     alignItems: "center",

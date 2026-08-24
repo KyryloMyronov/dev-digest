@@ -1,16 +1,29 @@
 {
+  "title": "Blast radius",
+  "loading": "Computing blast radius…",
+  "error": "Couldn't load the blast radius.",
   "stat": {
-    "symbols": "symbols",
-    "callers": "callers",
-    "endpoints": "endpoints",
-    "crons": "cron/jobs"
+    "symbols": "{count, plural, one {symbol} other {symbols}}",
+    "callers": "{count, plural, one {caller} other {callers}}",
+    "endpoints": "{count, plural, one {endpoint} other {endpoints}}",
+    "crons": "{count, plural, one {cron} other {crons}}"
   },
   "view": {
-    "tree": "tree",
-    "graph": "graph"
+    "tree": "Tree",
+    "graph": "Graph"
   },
   "callerCount": "{count} callers",
   "noDownstream": "{count} changed symbol(s), no downstream callers found.",
+  "noSymbols": "No symbols were found in this PR's changed files.",
+  "truncated": "top 20 callers by rank shown",
+  "status": {
+    "partial": "Partial index",
+    "degraded": "Degraded"
+  },
+  "endpoints": {
+    "title": "Potentially affected endpoints",
+    "empty": "No endpoints reachable within 2 import levels."
+  },
   "graph": {
     "empty": "No downstream callers to graph.",
     "ariaLabel": "Blast radius graph"

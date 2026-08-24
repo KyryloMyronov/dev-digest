@@ -87,7 +87,10 @@ export default function PRDetailPage() {
   // into a half-finished scroll would be noise, not navigation.
   const [diffReveal, setDiffReveal] = React.useState<DiffReveal | null>(null);
 
-  const tab = search.get("tab") ?? "overview";
+  // "blast" is no longer a tab — the blast-radius card lives on the Overview
+  // tab now, so old ?tab=blast links land there instead of on a blank page.
+  const rawTab = search.get("tab") ?? "overview";
+  const tab = rawTab === "blast" ? "overview" : rawTab;
   const traceRunId = search.get("trace");
   const setParam = (key: string, val: string | null) => {
     const sp = new URLSearchParams(search.toString());
@@ -98,6 +101,12 @@ export default function PRDetailPage() {
   const setTab = (t: string) => setParam("tab", t);
   const jumpToFinding = (f: FindingRecord) => {
     setDiffReveal((prev) => ({ path: f.file, line: f.start_line ?? null, token: (prev?.token ?? 0) + 1 }));
+    setTab("diff");
+  };
+  // Blast-radius card: a changed symbol's file is by definition in the diff —
+  // same cross-tab jump as findings, just without a line anchor.
+  const jumpToFile = (path: string) => {
+    setDiffReveal((prev) => ({ path, line: null, token: (prev?.token ?? 0) + 1 }));
     setTab("diff");
   };
 
@@ -183,7 +192,15 @@ export default function PRDetailPage() {
       />
 
       <div style={{ padding: "24px 32px 44px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1080, margin: "0 auto" }}>
-        {tab === "overview" && <OverviewTab prBody={pr.body} prId={prId} headSha={pr.head_sha} />}
+        {tab === "overview" && (
+          <OverviewTab
+            prBody={pr.body}
+            prId={prId}
+            headSha={pr.head_sha}
+            repoFullName={repoFullName}
+            onRevealFile={jumpToFile}
+          />
+        )}
 
         {tab === "findings" && (
           <FindingsTab

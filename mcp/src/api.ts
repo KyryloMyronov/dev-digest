@@ -94,6 +94,23 @@ export interface ConventionsView {
   items: ConventionCandidate[];
 }
 
+/** GET /pulls/:id/blast — projection of the BlastResponse contract. */
+export interface BlastRadiusView {
+  status: 'full' | 'partial' | 'degraded';
+  reason?: string | null;
+  changed_files: string[];
+  impacts: Array<{
+    symbol: string;
+    file: string;
+    kind: string;
+    callers: Array<{ file: string; symbol: string; line: number; rank: number }>;
+    callers_truncated: boolean;
+    endpoints_affected: string[];
+    crons_affected: string[];
+  }>;
+  endpoints: Array<{ endpoint: string; file: string; chain: string[] }>;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
