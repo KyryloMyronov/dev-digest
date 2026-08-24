@@ -79,11 +79,26 @@ export type AppConfig = {
   promptLogVerboseSuppressed: boolean;
 };
 
+/** 'true'/'1' (any case, trimmed) reads as an enabled boolean env flag. */
+function envFlagOn(value: string | undefined): boolean {
+  if (value == null) return false;
+  const v = value.trim().toLowerCase();
+  return v === 'true' || v === '1';
+}
+
+/** 'false'/'0' (any case, trimmed) reads as an explicit opt-out. */
+function envFlagOff(value: string | undefined): boolean {
+  if (value == null) return false;
+  const v = value.trim().toLowerCase();
+  return v === 'false' || v === '0';
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = EnvSchema.parse(env);
   const cloneDirRaw =
     parsed.DEVDIGEST_CLONE_DIR ?? join(homedir(), '.devdigest', 'workspace');
   const cloneDir = isAbsolute(cloneDirRaw) ? cloneDirRaw : resolve(process.cwd(), cloneDirRaw);
+  const promptLogRequested = envFlagOn(parsed.PROMPT_LOG_VERBOSE);
   return {
     databaseUrl: parsed.DATABASE_URL,
     apiPort: parsed.API_PORT,
@@ -93,11 +108,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     nodeEnv: parsed.NODE_ENV,
     logLevel: parsed.LOG_LEVEL ?? (parsed.NODE_ENV === 'test' ? 'silent' : 'info'),
     webOrigin: `http://localhost:${parsed.WEB_PORT}`,
-    embeddingsEnabled: parsed.EMBEDDINGS_ENABLED === 'true',
-    repoIntelEnabled: parsed.REPO_INTEL_ENABLED !== 'false',
-    promptLogVerbose:
-      parsed.PROMPT_LOG_VERBOSE === 'true' && parsed.NODE_ENV !== 'production',
-    promptLogVerboseSuppressed:
-      parsed.PROMPT_LOG_VERBOSE === 'true' && parsed.NODE_ENV === 'production',
+    embeddingsEnabled: envFlagOn(parsed.EMBEDDINGS_ENABLED),
+    repoIntelEnabled: !envFlagOff(parsed.REPO_INTEL_ENABLED),
+    promptLogVerbose: promptLogRequested && parsed.NODE_ENV !== 'production',
+    promptLogVerboseSuppressed: promptLogRequested && parsed.NODE_ENV === 'production',
   };
 }
