@@ -31,6 +31,8 @@ export function FindingCard({
   pending,
   repoFullName,
   headSha,
+  onJumpToDiff,
+  inDiff,
 }: {
   f: FindingRecord;
   focused?: boolean;
@@ -39,6 +41,10 @@ export function FindingCard({
   pending?: boolean;
   repoFullName?: string | null;
   headSha?: string | null;
+  /** Jump to this finding's line in the Files-changed diff (L03 · Smart Diff). */
+  onJumpToDiff?: () => void;
+  /** false = the anchored line isn't in the diff — mark it, don't promise a landing. */
+  inDiff?: boolean;
 }) {
   const t = useTranslations("prReview");
   const [expanded, setExpanded] = React.useState(defaultExpanded ?? false);
@@ -68,6 +74,28 @@ export function FindingCard({
             <MonoLink href={fileHref}>
               {f.file}:{lineLabel(f)}
             </MonoLink>
+            {inDiff === false && (
+              <span
+                title={t("finding.notInDiff")}
+                aria-label={t("finding.notInDiff")}
+                style={{ display: "inline-flex", alignItems: "center" }}
+              >
+                <Icon.AlertTriangle size={13} style={{ color: "var(--warn)" }} />
+              </span>
+            )}
+            {onJumpToDiff && (
+              <Button
+                kind="ghost"
+                size="sm"
+                icon="Code"
+                onClick={(e: React.MouseEvent) => {
+                  e.stopPropagation(); // the header click toggles the card
+                  onJumpToDiff();
+                }}
+              >
+                {t("finding.viewInDiff")}
+              </Button>
+            )}
             <ConfidenceNum value={f.confidence} />
           </div>
         </div>

@@ -1,11 +1,13 @@
 /* CodeLine — one rendered diff line: gutter number, +/- sign, text, plus the
-   hover "+" affordance, any anchored comment threads, and an inline composer. */
+   hover "+" affordance, any anchored comment threads, and an inline composer.
+   A line a review finding points at renders highlighted (L03 · Smart Diff). */
 "use client";
 
 import React from "react";
+import type { Severity } from "../../../lib/types";
 import { commentTargetFor, type CommentThread, type DiffCommentApi, cs } from "../comments";
 import { type Line } from "../helpers";
-import { s, lineRowFor, lineSignFor } from "../styles";
+import { s, findingRowFor, lineRowFor, lineSignFor } from "../styles";
 import { CommentThreadView } from "../CommentThreadView";
 import { InlineComposer } from "../InlineComposer";
 
@@ -14,11 +16,18 @@ export function CodeLine({
   path,
   threads,
   commenting,
+  finding,
+  flash,
 }: {
   ln: Line;
   path: string;
   threads: CommentThread[];
   commenting?: DiffCommentApi;
+  /** A review finding anchors to this line — render the eye-catch in the
+   *  finding's severity colour. Null/undefined = no finding on this line. */
+  finding?: Severity | null;
+  /** This row is the target of a jump-to-finding — pulse it once. */
+  flash?: boolean;
 }) {
   const [hover, setHover] = React.useState(false);
   const [composing, setComposing] = React.useState(false);
@@ -41,7 +50,15 @@ export function CodeLine({
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      <div style={lineRowFor(ln.kind)}>
+      <div
+        style={{
+          ...(finding ? findingRowFor(ln.kind, finding) : lineRowFor(ln.kind)),
+          ...(flash ? { animation: "ddFlash 1.9s ease-out" } : null),
+        }}
+        data-finding-line={finding ? "true" : undefined}
+        data-finding-severity={finding ?? undefined}
+        data-new-line={ln.newNo ?? undefined}
+      >
         <span className="mono tnum" style={{ ...s.lineNo, position: "relative" }}>
           {showAdd && target && (
             <button

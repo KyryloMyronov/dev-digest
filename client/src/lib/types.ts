@@ -33,7 +33,13 @@ export type {
 } from "@devdigest/shared";
 
 export type { Review, Finding, Severity, Verdict } from "@devdigest/shared";
-export type { PrBrief, SmartDiff } from "@devdigest/shared";
+export type {
+  PrBrief,
+  SmartDiff,
+  SmartDiffFile,
+  SmartDiffGroup,
+  SmartDiffRole,
+} from "@devdigest/shared";
 
 /** UI-only view model for a PR list row (derives display fields from PrMeta). */
 export interface PrRowView {

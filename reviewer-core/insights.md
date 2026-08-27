@@ -14,6 +14,26 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-22 — OpenRouter 402 "requires more credits, or fewer max_tokens" = a request that sent no `max_tokens`
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** every review fails with `402 This request requires more credits,
+or fewer max_tokens. You requested up to 65536 tokens` — even though the review
+output would only be a few thousand tokens and the account has (some) credits.
+**Cause:** when a request omits `max_tokens`, OpenRouter's pre-flight credit
+check reserves the MODEL's maximum output window (65 536 for the model above)
+against the account balance, so a small balance is rejected before anything
+runs. `OpenRouterProvider.completeStructured` only forwarded `max_tokens` when
+the caller set `req.maxTokens`, and the review path (`review/run.ts`) never
+does.
+**Fix:** the provider now always sends `max_tokens: req.maxTokens ?? 8_192`
+(`src/llm/openrouter.ts`, pinned by `test/openrouter.test.ts`) — big enough for
+a structured Review plus reasoning tokens, small enough for low balances. If
+the 402 still appears, the balance can't even cover prompt + 8 192 reserved
+output tokens: top up, or pass a smaller `maxTokens` / cheaper model. Same trap
+applies to any future OpenRouter call site: never send a request without an
+output cap.
+
 ## 2026-07-30 — this package is npm, and forgetting that breaks the server
 
 **Rubric:** Recurring Errors & Fixes

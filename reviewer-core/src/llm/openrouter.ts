@@ -24,6 +24,17 @@ import { toJsonSchema, parseWithRepair } from './structured.js';
 
 const NOT_SUPPORTED = 'OpenRouterProvider only implements completeStructured';
 
+/**
+ * Output cap sent when the request doesn't set one. Without `max_tokens`,
+ * OpenRouter reserves the MODEL's maximum output window (e.g. 65 536 tokens)
+ * against the account balance in its pre-flight credit check, so a small
+ * balance fails every request with 402 "requires more credits, or fewer
+ * max_tokens" before anything runs. A structured Review is a few thousand
+ * tokens at most; 8 192 leaves room for reasoning-token models while keeping
+ * the reservation small enough for low balances.
+ */
+const DEFAULT_MAX_TOKENS = 8_192;
+
 export interface OpenRouterProviderOptions {
   /** OpenAI-compatible base URL (default: OpenRouter). */
   baseURL?: string;
@@ -70,7 +81,7 @@ export class OpenRouterProvider implements LLMProvider {
         model: req.model,
         messages,
         temperature: req.temperature ?? 0,
-        ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+        max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
         response_format: {
           type: 'json_schema',
           json_schema: { name: req.schemaName, schema: jsonSchema.schema, strict: true },

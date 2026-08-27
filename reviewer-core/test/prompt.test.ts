@@ -30,6 +30,13 @@ describe('assemblePrompt — shared injection guard (server + CI)', () => {
     expect(sys).toMatch(/never reduce|never .*descope|REPORT it/i);
     expect(sys).toMatch(/any language/i);
   });
+
+  it('appends the English output-language rule to every agent prompt', () => {
+    // Central like the guard, so findings on a non-English PR still come back
+    // in English without each stored agent prompt having to say so.
+    expect(sys).toMatch(/OUTPUT LANGUAGE/);
+    expect(sys).toMatch(/in English, regardless of the language/);
+  });
 });
 
 describe('assemblePrompt — ## PR description', () => {

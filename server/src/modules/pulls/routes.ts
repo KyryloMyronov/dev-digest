@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import type { PrDetail, PrMeta, PrReviewComment } from '@devdigest/shared';
-import { PrCommentInput } from '@devdigest/shared';
+import { PrCommentInput, SmartDiffResponse } from '@devdigest/shared';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
 import { PullsService } from './service.js';
@@ -12,6 +12,7 @@ import { PullsService } from './service.js';
  *   GET  /repos/:id/pulls    → list PRs for a repo (open + recently merged/closed,
  *                              synced from GitHub, persisted)
  *   GET  /pulls/:id          → full PR detail (diff/files, commits, body)
+ *   GET  /pulls/:id/smart-diff → L03: changed files grouped by review role
  *   GET  /pulls/:id/comments → inline review comments (proxied to GitHub)
  *   POST /pulls/:id/comments → create an inline review comment
  *
@@ -32,6 +33,21 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
     const { workspaceId } = await getContext(container, req);
     return service.getDetail(workspaceId, req.params.id);
   });
+
+  /**
+   * L03 · Smart Diff. A pure read: the grouping is computed from the files and
+   * findings already persisted for the PR, with no model call and no GitHub
+   * round-trip (see `smart-diff.ts`), so it is safe to fetch on every render of
+   * the diff tab.
+   */
+  app.get(
+    '/pulls/:id/smart-diff',
+    { schema: { params: IdParams, response: { 200: SmartDiffResponse } } },
+    async (req) => {
+      const { workspaceId } = await getContext(container, req);
+      return service.getSmartDiff(workspaceId, req.params.id);
+    },
+  );
 
   app.get(
     '/pulls/:id/comments',

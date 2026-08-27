@@ -24,6 +24,10 @@ interface FindingsTabProps {
   onOpenTrace: (id: string) => void;
   onDelete: (id: string) => void;
   onRunDone: () => void;
+  /** Jump a finding to its line on the Files-changed tab (L03 · Smart Diff). */
+  onJumpToDiff?: (f: FindingRecord) => void;
+  /** Whether a finding's anchor line is actually present in the diff. */
+  findingInDiff?: (f: FindingRecord) => boolean;
 }
 
 export function FindingsTab({
@@ -40,6 +44,8 @@ export function FindingsTab({
   onOpenTrace,
   onDelete,
   onRunDone,
+  onJumpToDiff,
+  findingInDiff,
 }: FindingsTabProps) {
   const handleCancelAll = useCallback(() => {
     liveRunIds.forEach((id) => cancelMutation.mutate(id));
@@ -164,6 +170,8 @@ export function FindingsTab({
             headSha={headSha}
             targetRunId={target?.runId ?? null}
             targetNonce={target?.n ?? 0}
+            onJumpToDiff={onJumpToDiff}
+            findingInDiff={findingInDiff}
           />
         ))
       )}
