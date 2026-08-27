@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Agent } from "@devdigest/shared";
 import messages from "../../../../../../messages/en/agents.json";
 import { ToastProvider } from "../../../../../lib/toast";
@@ -9,6 +10,13 @@ import { ToastProvider } from "../../../../../lib/toast";
 vi.mock("../../../../../lib/hooks/agents", () => ({
   useUpdateAgent: () => ({ mutate: vi.fn(), isPending: false, isSuccess: false, data: undefined }),
   useProviderModels: () => ({ data: [{ id: "gpt-4.1", provider: "openai" }] }),
+}));
+
+// SPEC-01's Context tab pushes on the router from its empty state.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => "/agents/ag1",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 import { AgentEditor } from "./AgentEditor";
@@ -44,5 +52,46 @@ describe("A2 Agent Editor (smoke)", () => {
     expect(screen.getByText("Config")).toBeInTheDocument();
     expect(screen.getByText("Configuration")).toBeInTheDocument();
     expect(screen.getByText("Save agent")).toBeInTheDocument();
+  });
+
+  /**
+   * SPEC-01 — the Context tab, mounted with THIS screen's catalogue only and
+   * with a `fetch` that does not know its endpoints.
+   *
+   * Two defect classes are pinned here, both of which took the skill editor down
+   * before they were fixed: a component reading another screen's i18n namespace
+   * throws MISSING_MESSAGE, and a list component handed a truthy non-array
+   * throws during render. The test above renders only the Config tab, so it
+   * would have passed either way — this one is what stops that being luck.
+   */
+  it("renders the Context tab from the agents catalogue and survives a wrong-shaped payload", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={qc}>
+        <NextIntlClientProvider locale="en" messages={{ agents: messages }}>
+          <ToastProvider>
+            <AgentEditor agent={AGENT} tab="context" onTab={() => {}} />
+          </ToastProvider>
+        </NextIntlClientProvider>
+      </QueryClientProvider>,
+    );
+
+    // The tab exists in the tab strip…
+    expect(screen.getByText("Context")).toBeInTheDocument();
+    // …and it degrades to its empty state instead of throwing.
+    await waitFor(() =>
+      expect(screen.getByText("No documents to attach")).toBeInTheDocument(),
+    );
+    vi.unstubAllGlobals();
   });
 });

@@ -60,6 +60,16 @@ beforeEach(() => {
         });
 
       if (/\/skills\/[^/]+\/agents$/.test(url)) return json(["Test Quality Reviewer"]);
+      // SPEC-01 — the editor modal now mounts a project-context surface, which
+      // fires two more GETs. Both must answer with their real SHAPES: the
+      // catch-all below returns `{ ok: true }`, and a list component handed a
+      // non-array used to throw during render and unmount the whole modal.
+      // No repo is active in this suite (`useActiveRepo` is unwrapped here), so
+      // the document list is empty and the surface renders its empty state.
+      if (/\/skills\/[^/]+\/context-docs/.test(url)) return json([]);
+      if (/\/repos\/[^/]+\/context$/.test(url)) {
+        return json({ files: [], total: 0, omitted: 0, scanned_at: null });
+      }
       if (method === "GET" && url.endsWith("/skills")) return json(skills);
       if (method === "POST" && url.endsWith("/skills")) {
         const created: Skill = {

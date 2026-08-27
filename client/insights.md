@@ -14,6 +14,63 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-27 — a shared component that resolves its own i18n namespace crashes a screen whose catalogue lacks it; and `?? []` cannot defend a list
+
+**Rubric:** What Doesn't Work
+**Symptom:** adding a context-attachment field to `SkillEditorModal` broke a
+**pre-existing** test, `SkillsListView.test.tsx > edits an existing skill`, with
+`Unable to find role="dialog"` — an assertion about nothing the change touched.
+Two errors preceded it in stderr:
+
+```
+IntlError: MISSING_MESSAGE: Could not resolve `context` in messages for locale `en`.
+TypeError: attached.map is not a function
+```
+
+**Cause:** two independent mistakes in one component.
+(1) It called `useTranslations("context")`, but its strings belong to the owning
+screen's catalogue (`skills.json`), and this repo's tests mount
+`NextIntlClientProvider` with only the namespaces that screen needs
+(`messages={{ skills, shell }}`). A namespace the screen does not carry throws.
+(2) It did `attachments.data ?? []` and then `.map()`. The test's `fetch` mock did
+not serve the new endpoint, so `data` was a **truthy non-array** — and `??` only
+catches nullish, never a wrong *shape*. The throw unmounted the whole modal,
+which is why the failure surfaced as a missing dialog rather than anything about
+context.
+**Fix:** keep attach vocabulary in the **owning screen's** catalogue
+(`agents.json` → `agents.context.*`, `skills.json` → `skills.context.*`, read as
+`useTranslations("skills")` + `t("context.…")`), and give a genuinely shared
+component **label props** instead of a `useTranslations` call of its own —
+otherwise promoting a component drags one screen's catalogue into another. Guard
+list shape with `Array.isArray(value) ? value : []`, not `??`. And when new
+production code adds queries to an existing screen, that screen's **pre-existing
+test fixture is yours to update** — the crash lands in a test that looks
+unrelated. A sibling trap: `AgentEditor.test.tsx` passed only because it renders
+`tab="config"`, so the new tab never mounted; it needed a test that mounts it.
+
+## 2026-08-27 — with `css: false`, bind a computed-contrast test to the implementation by reading the inline `style.color`
+
+**Rubric:** What Works
+**Symptom:** WCAG contrast is a real requirement here (NFR-9 in SPEC-01 asks for
+a computed ratio ≥ 4.5:1 in both themes), but `getComputedStyle(el).outline` and
+every CSS-variable lookup come back empty in this suite, so a test that asks the
+DOM for a resolved colour proves nothing regardless of correctness.
+**Cause:** `client/vitest.config.ts` sets `css: false`, so no stylesheet loads
+and no `var(--x)` ever resolves. jsdom has no CSS engine and no `:focus-visible`.
+**Fix:** compute the ratio from the token table in the test (copy the hex values
+from `src/vendor/ui/styles.css`, real relative-luminance maths) **and** bind it to
+the component by asserting the token it actually paints — `expect(el.style.color)
+.toBe("var(--crit)")`, read off the rendered inline style, which jsdom does
+preserve verbatim. Without that bridge the arithmetic drifts from the component
+silently. `DocRow.test.tsx:42-129` and `context-tokens/TokenTotal.test.tsx` are
+the two worked examples; the helpers are byte-identical between them on purpose.
+Two costs to accept and state: the token table is a **copy**, so changing
+`styles.css` leaves the test measuring the old value, and the *surfaces* a
+component renders against are a static read of its call sites, asserted nowhere.
+Also worth pinning the tightest pair with an upper bound — `--crit` on
+`--bg-elevated` (dark) measures **4.5287:1**, so one step of drift breaks it, and
+a bare `toBeGreaterThanOrEqual(4.5)` would not say so.
+
 ## 2026-08-18 — vitest's jsdom has NO `window.localStorage`; code guarded by try/catch silently no-ops in tests
 
 **Rubric:** Tool & Library Notes

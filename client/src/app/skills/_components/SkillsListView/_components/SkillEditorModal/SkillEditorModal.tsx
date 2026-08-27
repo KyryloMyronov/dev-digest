@@ -1,7 +1,11 @@
 /* SkillEditorModal — create a skill, or edit an existing one. The same form
    serves both, and the import flow hands it a pre-filled draft so an imported
    skill is reviewed and corrected in exactly the same fields before it is
-   saved. */
+   saved.
+
+   SPEC-01 adds the project-context surface at the bottom (SkillContextField).
+   The modal is NOT routed and gains no tabs: the full-page tabbed skill editor
+   drawn in the spec's mock is an explicit Non-goal. */
 "use client";
 
 import React from "react";
@@ -11,6 +15,7 @@ import type { Skill, SkillSource, SkillType } from "@devdigest/shared";
 import { useCreateSkill, useUpdateSkill } from "../../../../../../lib/hooks/skills";
 import { ApiError } from "../../../../../../lib/api";
 import { TYPE_OPTIONS } from "../../constants";
+import { SkillContextField } from "./_components/SkillContextField";
 import { e } from "./styles";
 
 /** A form's worth of skill, before it has an id. */
@@ -128,6 +133,18 @@ export function SkillEditorModal({
             mono
             placeholder={t("editor.bodyPlaceholder")}
           />
+        </FormField>
+
+        {/* SPEC-01 — the skill's project-context documents (AC-20's UI).
+            Only for a SAVED skill: an attachment is a row keyed by `skill_id`,
+            so there is nothing to attach to until the skill exists. The create
+            path says so rather than showing a dead control. */}
+        <FormField label={t("editor.contextLabel")} hint={t("editor.contextHint")}>
+          {skill ? (
+            <SkillContextField skillId={skill.id} />
+          ) : (
+            <p style={e.error}>{t("editor.contextAfterSave")}</p>
+          )}
         </FormField>
       </div>
     </Modal>

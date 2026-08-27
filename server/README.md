@@ -78,6 +78,7 @@ flowchart TB
   end
   subgraph Intel["Repo intelligence"]
     repoIntel["repo-intel<br/>/repos/:id/index-state · /resync"]
+    projectCtx["project-context<br/>/repos/:id/context · /context/doc · /context/reindex<br/>/agents/:id/context-docs · /skills/:id/context-docs"]
   end
   subgraph Platform["Platform"]
     settings["settings<br/>/settings · /providers"]
@@ -146,6 +147,18 @@ What the reviewer actually sends to the model is assembled in
 - **Grounding is mandatory.** Every finding must cite a line that exists in the
   diff or it is dropped (`groundFindings`), and the score is recomputed from the
   surviving findings — the model's self-reported score is ignored.
+- **Project context is attached per agent, and it is untrusted.** A reviewer
+  attaches Markdown the repository already contains (`specs/`, `docs/`,
+  `insights/` at any depth) to an agent and to its skills; on a run the executor
+  resolves them, and the bodies fill the engine's `specs` slot as one
+  `## Project context` block, each document fenced as
+  `<untrusted source="<path>">`. A document inherited from a skill is **not**
+  trusted the way skill bodies are. The layer never fails a review: an unreadable,
+  oversize or over-budget document is skipped, named in the Live Log and recorded
+  in the run trace's `specs_skipped`, and the `specs` key is omitted entirely when
+  nothing resolved. Discovery, routes, limits and known gaps:
+  [`src/modules/project-context/README.md`](src/modules/project-context/README.md);
+  the reasoning: [`docs/project-context-injection.md`](docs/project-context-injection.md).
 - **Intent is derived once per run, on a SEPARATE cheap model** (L03,
   `modules/reviews/intent-pipeline.ts`). Before the agents run, the executor
   gathers the PR title, body, branch, commit subjects, changed-file paths, a

@@ -1,43 +1,39 @@
-# `server/specs/` — intent for work not yet built
+# `server/specs/` — specs that change this package only
 
 A spec is written **before** the code and describes what "done" means. Once the
 feature ships, the spec stays as the record of intent; behaviour documentation
 belongs in [`../README.md`](../README.md) or [`../docs/`](../docs/README.md).
 
-File naming: `LNN-slug.md` for roadmap lessons, `slug.md` otherwise.
+**This folder holds the specs whose work is confined to `server/`.** A feature
+that also touches `client/`, `reviewer-core/` or `mcp/` goes in the repo-root
+[`specs/`](../../specs/README.md) folder instead — and a change to a shared Zod
+contract always does, because the canonical copy here is mirrored into
+`client/src/vendor/shared/`. The full routing table is in that README.
 
-## Template
+Naming and numbering come from the root folder too: `SPEC-NN-slug.md`, with `NN`
+**globally unique across the repository** and allocated as max existing + 1 over
+every spec folder at once. Every spec is indexed once, in
+[`specs/README.md`](../../specs/README.md#index) — this file keeps no second
+table.
 
-```markdown
-# <Feature>
+Write one with the [`spec-creator`](../../.claude/agents/spec-creator.md) agent.
+It runs in two passes: questions and design findings first, the file once you
+have answered. The section list it writes to is
+[`.claude/skills/spec-creator/references/template.md`](../../.claude/skills/spec-creator/references/template.md).
 
-**Status:** draft | agreed | building | shipped
-**Lesson:** L0N (or —)
+The older free-form files already here (`conventions.md`, `run-cost.md`,
+`skills.md`) predate both the template and the numbering. They stay as they are —
+they are shipped specs, and rewriting them would lose the record of intent — and
+they do not take part in the number allocation.
 
-## Problem
-One paragraph. What can't be done today, and who cares.
+Server-specific points the root template expects you to fill in:
 
-## Scope
-- Bullet list of what this change includes.
-
-## Out of scope
-- Explicitly what it does NOT include. This section prevents the most rework.
-
-## Contract changes
-New or changed Zod schemas in `@devdigest/shared` — remember the client mirror.
-New or changed routes, with method + path + request/response shape.
-
-## Schema changes
-New tables/columns, and the migration name once generated. Note: many tables
-already exist unused (see root CLAUDE.md) — check before adding one.
-
-## Acceptance criteria
-- [ ] Observable, testable statements. Not "works correctly".
-- [ ] Which suite covers each: unit / `*.it.test.ts` / e2e flow.
-
-## Open questions
-Anything that would change the design if answered differently.
-```
+- **Contract changes** belong under *Module interactions* — new or changed Zod
+  schemas in `@devdigest/shared`, canonical at `server/src/vendor/shared/` with a
+  hand-synced mirror at `client/src/vendor/shared/`. A contract change is always
+  two files.
+- **Schema changes** belong there too — the migration name once generated. Many
+  tables already exist unused (see root `AGENTS.md`); check before adding one.
 
 ## Backlog — server-side slices of the lesson roadmap
 

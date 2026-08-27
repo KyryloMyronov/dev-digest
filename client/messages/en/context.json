@@ -1,24 +1,46 @@
 {
   "title": "Project Context",
-  "chunks": "{count} chunks",
   "reindex": "Re-index",
   "indexing": "Indexing…",
-  "resync": "Resync",
-  "resyncing": "Resyncing…",
-  "indexStatus": "Index status: {status}",
-  "loadError": "Couldn’t load specs",
-  "kb": "{kb}kb",
+  "page": {
+    "headingPrefix": "Project context for ",
+    "subtitle": "Markdown this repository already contains, read-only. Attach documents to an agent to ground its reviews in them.",
+    "repoFallback": "this repository",
+    "crumbWorkspace": "Workspace",
+    "title": "Project Context"
+  },
+  "source": {
+    "specs": "specs",
+    "docs": "docs",
+    "insights": "insights"
+  },
+  "row": {
+    "tokens": "{count} tok",
+    "tokensPending": "counting…"
+  },
+  "list": {
+    "label": "Discovered documents",
+    "loading": "Loading documents",
+    "loadError": "Couldn’t load this repository’s documents",
+    "showingOf": "Showing {shown} of {total} documents."
+  },
   "empty": {
-    "title": "No spec files yet",
-    "body": "Drop your PRDs, tech specs, and acceptance criteria under .devdigest/specs/. Every agent and the PR brief read them as grounding context."
+    "title": "No documents found",
+    "body": "DevDigest reads Markdown from this repository's specs/, docs/ and insights/ directories, at any depth. Add a .md file under one of them and re-index."
   },
-  "mode": {
-    "preview": "preview",
-    "edit": "edit"
+  "cloning": {
+    "title": "This repository is still cloning",
+    "body": "DevDigest has not finished cloning {repo} yet, so there is nothing to read. Documents appear here once the clone lands.",
+    "cta": "Check again"
   },
-  "editor": {
-    "loadError": "Couldn’t load spec",
-    "save": "Save",
-    "saving": "Saving…"
+  "preview": {
+    "noSelection": "Select a document to read it",
+    "loadError": "Couldn’t load this document",
+    "attachedAgents": "{count, plural, =0 {no agents} one {1 agent} other {# agents}}"
+  },
+  "footer": {
+    "documents": "{count, plural, =0 {No documents} one {1 document} other {# documents}} discovered",
+    "scannedAt": "Tokens last counted {at}",
+    "neverScanned": "Tokens not counted yet"
   }
 }

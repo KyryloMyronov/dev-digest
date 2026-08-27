@@ -21,8 +21,9 @@ export interface NavGroup {
 /* Only routes that EXIST may be listed: NavItem renders a bare <Link> with no
    existence guard, so a row for a page that has not been built yet is a 404 the
    sidebar invites you to click. The design's GLOBAL group (Memory, Multi-Agent
-   Review, Agent Performance, CI Runs) and the Eval Dashboard / Project Context
-   rows are deliberately withheld until their routes land.
+   Review, Agent Performance, CI Runs) and the Eval Dashboard row are
+   deliberately withheld until their routes land. Project Context has left that
+   list — `/repos/:repoId/context` ships with SPEC-01.
 
    `label` must stay byte-identical to the matching `shell.nav.<key>` message:
    the sidebar renders this literal while the command palette renders the
@@ -32,6 +33,7 @@ export const NAV: NavGroup[] = [
     section: "WORKSPACE",
     items: [
       { key: "pulls", label: "Pull Requests", icon: "GitPullRequest", href: "/repos/:repoId/pulls", gKey: "p" },
+      { key: "context", label: "Project Context", icon: "FileText", href: "/repos/:repoId/context", gKey: "x" },
     ],
   },
   {
@@ -68,6 +70,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { keys: "⌘K", label: "Open command palette", group: "Global" },
   { keys: "?", label: "Show keyboard shortcuts", group: "Global" },
   { keys: "g p", label: "Go to Pull Requests", group: "Navigation" },
+  { keys: "g x", label: "Go to Project Context", group: "Navigation" },
   { keys: "g s", label: "Go to Skills", group: "Navigation" },
   { keys: "g a", label: "Go to Agents", group: "Navigation" },
   { keys: "g c", label: "Go to Conventions", group: "Navigation" },

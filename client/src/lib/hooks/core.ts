@@ -1,7 +1,12 @@
 /* hooks/core.ts — typed React Query hooks over the F1 API (contracts):
-   settings, secrets, repos, pulls, and project context. Scaffolding screens use
-   these; feature-domain hooks live in the sibling files (agents/reviews/trace/…)
-   and are re-exported alongside these from hooks/index.ts. */
+   settings, secrets, repos and pulls. Scaffolding screens use these;
+   feature-domain hooks live in the sibling files (agents/reviews/trace/
+   project-context/…) and are re-exported alongside these from hooks/index.ts.
+
+   Project context USED to live here. It moved to hooks/project-context.ts once
+   it became a real domain with its own routes — one hook file per domain, as
+   client/AGENTS.md asks. Both files are re-exported from hooks/index.ts, so no
+   import path changed. */
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -15,8 +20,6 @@ import type {
   Repo,
   PrMeta,
   PrDetail,
-  SpecFile,
-  IndexStatus,
   SmartDiff,
 } from "../types";
 import {
@@ -25,7 +28,6 @@ import {
   providerModelKeys,
   repoKeys,
   pullKeys,
-  contextKeys,
 } from "./keys";
 
 // ---- Settings (F1: GET/PUT /settings, POST /settings/test-connection) ----
@@ -144,22 +146,5 @@ export function useSmartDiff(prId: string | null | undefined) {
     queryKey: pullKeys.smartDiff(prId),
     queryFn: () => api.get<SmartDiff>(`/pulls/${prId}/smart-diff`),
     enabled: prId != null,
-  });
-}
-
-// ---- Project Context (A3 contract; safe to call once API exposes it) ----
-export function useContextFiles(repoId: string | null | undefined) {
-  return useQuery({
-    queryKey: contextKeys.byRepo(repoId),
-    queryFn: () => api.get<SpecFile[]>(`/repos/${repoId}/context`),
-    enabled: !!repoId,
-  });
-}
-
-export function useReindexContext() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (repoId: string) => api.post<IndexStatus>(`/repos/${repoId}/context/reindex`),
-    onSuccess: (_d, repoId) => qc.invalidateQueries({ queryKey: contextKeys.byRepo(repoId) }),
   });
 }

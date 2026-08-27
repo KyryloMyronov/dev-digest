@@ -9,6 +9,7 @@ demand. Nothing here should restate a README — link it instead.
 |---|---|
 | Request & DI flow, API map, environment variables, review context | [`../README.md`](../README.md) |
 | Indexer pipeline, `RepoIntel` facade, routes | [`../src/modules/repo-intel/README.md`](../src/modules/repo-intel/README.md) |
+| Project Context: discovery walk, token job, attach routes, limits | [`../src/modules/project-context/README.md`](../src/modules/project-context/README.md) |
 | Unit/integration split, suite map | [`../../TESTING.md`](../../TESTING.md) |
 | Prompt slot order, output conventions | [`../../docs/agent-prompts/README.md`](../../docs/agent-prompts/README.md) |
 | Architecture overview + diagram | [`../../README.md`](../../README.md) |
@@ -28,4 +29,6 @@ Name files by topic, lowercase, one concern each. Add a row to the table below.
 
 ## Docs in this folder
 
-_(none yet)_
+| Doc | What it explains |
+|---|---|
+| [`project-context-injection.md`](project-context-injection.md) | Why project-context documents enter the prompt fenced and path-labelled, why a skill cannot lend them its trust, why the layer never fails a review, and why one containment check was not enough |

@@ -103,3 +103,4 @@ a CI artifact by `.github/workflows/e2e-web.yml`).
 | `08-pr-list-findings` | PR list → findings counters → findings modal over the seeded review |
 | `09-skills` | skills library + preview; an agent's Skills tab renders the seeded links |
 | `10-conventions` | Conventions screen → seeded insights, evidence, confidences + the scan summary |
+| `11-project-context` | sidebar → Project Context route (cloning state, per D-Q6g); PR #482 → run trace → the project-context block's injected text. The `g x` chord is covered by a client unit test, not here — see the flow's `description` |

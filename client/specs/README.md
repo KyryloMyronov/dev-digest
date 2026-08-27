@@ -4,40 +4,38 @@ A spec is written **before** the code and describes what "done" means. Once the
 feature ships, the spec stays as the record of intent; the UI route map lives in
 [`../README.md`](../README.md).
 
-File naming: `LNN-slug.md` for roadmap lessons, `slug.md` otherwise.
+**This folder holds the specs whose work is confined to `client/`.** A feature
+that also touches `server/`, `reviewer-core/` or `mcp/` goes in the repo-root
+[`specs/`](../../specs/README.md) folder instead — as does anything that changes
+a shared Zod contract, since `client/src/vendor/shared/` is a hand-synced mirror
+of the server's canonical copy. The full routing table is in that README.
+
+`SPEC-NN-slug.md`, with `NN` **globally unique across the repository** and
+allocated as max existing + 1 over every spec folder at once. Every spec is
+indexed once, in [`specs/README.md`](../../specs/README.md#index) — this file
+keeps no second table.
+
+Write one with the [`spec-creator`](../../.claude/agents/spec-creator.md) agent.
+It runs in two passes: questions and design findings first, the file once you
+have answered.
 
 ## Template
 
-```markdown
-# <Feature>
+The section list and the writing rule for each section live in
+[`.claude/skills/spec-creator/references/template.md`](../../.claude/skills/spec-creator/references/template.md),
+mirrored for humans in [`specs/README.md`](../../specs/README.md#template). The
+older client-only template that used to sit here is superseded by it.
 
-**Status:** draft | agreed | building | shipped
-**Lesson:** L0N (or —)
+Two client-specific things that template expects you to fill in, and that a
+client spec is wrong without:
 
-## Problem
-What the user can't see or do today.
-
-## Scope
-- Which route(s) change, which components are new.
-
-## Out of scope
-- Explicitly excluded. Prevents the most rework.
-
-## API dependency
-Which endpoints this needs, and whether they exist yet. If not, link the
-server-side spec — the client spec must not invent a contract.
-
-## UI
-Route path, where it hangs off the app shell, and the states that must be
-designed: loading · empty · error (toast/inline/full-screen) · success.
-Data comes via a hook in `lib/hooks/` — name it here.
-
-## Acceptance criteria
-- [ ] Observable statements a test can assert.
-- [ ] Which suite covers each: vitest+jsdom / e2e flow.
-
-## Open questions
-```
+- **API dependency** — which endpoints this needs and whether they exist yet,
+  under *Module interactions*. A client spec must never invent a contract; if the
+  endpoint does not exist, the feature is cross-module and the spec belongs in
+  the root folder.
+- **Every UI state** — loading · empty · partial · error · success, each with its
+  own acceptance criterion. This is what the *Design review* pass exists to
+  surface, and the most common thing a mockup leaves undrawn.
 
 ## Backlog — client-side slices of the lesson roadmap
 

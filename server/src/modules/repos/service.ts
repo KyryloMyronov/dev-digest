@@ -12,6 +12,10 @@ import {
   INDEX_JOB_KIND,
   REFRESH_JOB_KIND,
 } from '../repo-intel/constants.js';
+// Cross-module import of another module's PUBLIC surface (its constants.ts) —
+// legal under `no-cross-module-internals`, and the sanctioned way to enqueue
+// another module's work by job kind.
+import { TOKEN_COUNT_JOB_KIND } from '../project-context/constants.js';
 
 /**
  * F1 — repos service. Business logic for the Repositories feature:
@@ -74,6 +78,17 @@ export class RepoService {
         // No handler registered or transient enqueue failure — clone has
         // already succeeded, so we don't fail the job for an index-followup
         // miss. The user can hit POST /repos/:id/reindex to retry.
+      }
+
+      // SPEC-01 — count the project-context documents' tokens now that there is
+      // a clone to walk, so the Project Context page shows real counts with no
+      // user action. Swallowed for exactly the reason above: a clone must not
+      // fail because a follow-up job could not be queued.
+      // POST /repos/:id/context/reindex is the manual retry (AC-63).
+      try {
+        await this.container.jobs.enqueue(workspaceId, TOKEN_COUNT_JOB_KIND, { repoId });
+      } catch {
+        // swallow — degraded path
       }
     }
   }

@@ -99,6 +99,13 @@
       "when": 1786993532341,
       "tag": "0013_soft_champions",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1787824961900,
+      "tag": "0014_spicy_captain_stacy",
+      "breakpoints": true
     }
   ]
 }

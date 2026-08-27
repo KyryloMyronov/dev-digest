@@ -14,6 +14,106 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-27 — two Docker runtimes installed: `docker context` says Colima, but the socket that reaches host :5432 is Rancher Desktop's
+
+**Rubric:** Recurring Errors & Fixes
+**Supersedes:** 2026-08-02 — `*.it.test.ts` can't find Docker under Colima
+**Symptom:** `pnpm exec vitest run .it.test` fails every file at `startPg()` with
+`Could not find a working container runtime strategy`. Following the 2026-08-02
+entry and exporting `DOCKER_HOST=unix://$HOME/.colima/default/docker.sock` does
+**not** fix it. Worse and more confusing: `pnpm db:migrate` reports
+`✓ migrations applied`, and then `docker exec devdigest-postgres psql` shows the
+new tables absent — because those two commands reach *different* Postgres
+instances.
+**Cause:** both Colima and Rancher Desktop are installed. `docker context ls`
+shows `colima` active, so plain `docker ps` / `docker exec` talk to a **stale
+Colima container** (its last applied migration was ~2026-08-17). But host port
+5432 is forwarded by **Rancher Desktop**, so the app, `db:migrate` and `db:seed`
+all hit Rancher's container. testcontainers finds neither socket by default.
+**Fix:** point both variables at the Rancher socket — this is what works on this
+machine, and it is the one whose ports reach the host:
+
+```sh
+DOCKER_HOST=unix://$HOME/.rd/docker.sock \
+TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock \
+  pnpm exec vitest run .it.test --reporter=dot
+```
+
+Note the asymmetry: `DOCKER_HOST` takes the **real** `~/.rd/docker.sock` path,
+while the override must stay the literal `/var/run/docker.sock` — that is the
+path Ryuk is told to bind *inside* the container. Setting the override to
+`$HOME/.rd/docker.sock` fails with `mkdir ...: operation not supported`.
+Repeated container churn also yields intermittent `Failed to connect to Reaper`
+(11 tests skipped, no test body run) — an environment result, not a test
+failure. Rerun. If `docker exec` and the app ever disagree about schema again,
+suspect this before suspecting the migration. Deleting the stale Colima
+container would remove the trap.
+
+## 2026-08-27 — `lstat` + `isSymbolicLink()` is NOT a containment check: it follows every intermediate path component
+
+**Rubric:** What Doesn't Work
+**Symptom:** a guard that resolves a repo-relative path, `lstat`s it and skips
+`isSymbolicLink()` was believed to stop a symlink escaping the clone. It stops
+only the case where the **final component** is the link. Measured:
+
+```
+BEFORE swap: lstat.isSymbolicLink = false | content = "legit"
+AFTER  swap: lstat.isSymbolicLink = false | content = "HOST SECRET"
+realpath      = /private/tmp/lstat-probe/outside/foo.md
+still lexically inside clone?  true
+```
+
+**Cause:** `lstat` declines to follow only the last component. Every directory
+above it is resolved normally, so replacing `specs/sub` with a symlink out of the
+tree leaves `specs/sub/foo.md` reporting `isSymbolicLink() === false`, lexically
+inside the clone, and reading the host file. A `resolve()` + `startsWith(root)`
+test is lexical and cannot see it either.
+**Fix:** `realpath` the candidate and compare it against a **`realpath`'d root**
+(`resolver.ts:230,269-273`). Both sides need resolving: on macOS the clone can
+sit under a symlinked prefix (`/var` → `/private/var`), so comparing a resolved
+path against an unresolved root rejects *everything*. Containment means equal to
+the root or starting with root + `sep` — bare `startsWith(root)` accepts a
+sibling like `/clones/acme/payments-api-evil`. Keep the `isSymbolicLink()` skip
+alongside it if a symlink pointing *back inside* the tree should also be refused;
+`realpath` alone would accept that one.
+
+## 2026-08-27 — a `realpath`/`stat` gate on the review path must treat "unresolvable" as unknown, not as outside
+
+**Rubric:** Codebase Patterns
+**Symptom:** adding a containment gate to the resolver that skipped a document
+whenever `realpath` returned null turned three green tests in
+`test/reviews.it.test.ts` red — every document reported `unread` and
+`specs_read` came back empty.
+**Cause:** `MockGitClient`, the virtual `GitClient` the review suites inject,
+serves document bodies with **no clone on disk at all**, so every `realpath`
+throws ENOENT. "Unresolvable" is a normal state in this lane, not an attack.
+**Fix:** let a null resolution **fall through** and let the read decide — a real
+read of an unresolvable path fails and is already reported as `unread`
+(`resolver.ts:262-268`). This loses nothing: a malicious symlink pointing at a
+file that actually exists resolves *successfully* and is caught by the
+containment comparison; it never reaches the null branch. Note this is the
+opposite posture from `assertDiscovered` in the same module, which deliberately
+fails closed — the difference is that an unknown *membership* answer has no
+corroborating signal downstream, whereas an unresolvable *path* is re-checked by
+the read itself.
+
+## 2026-08-27 — `sql<A | B>` does not parse: the pipe inside the generic makes tsc read it as a comparison
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** writing a Drizzle raw aggregate as
+``sql<Date | null>`max(${t.contextDocTokens.computedAt})` `` fails the whole file
+with `TS1160: Unterminated template literal` reported at **EOF**, nowhere near
+the actual line.
+**Cause:** `tsc` resolves `sql<Date` as a `<` comparison rather than a type
+argument, so the backtick that follows opens a template literal that never
+closes. The error location is useless because the parser is lost from that point
+on.
+**Fix:** avoid the union in the type argument. Either alias it
+(`type MaybeDate = Date | null` and use `sql<MaybeDate>`), or sidestep the
+aggregate — `repository.ts:108-121` uses `ORDER BY … DESC LIMIT 1` instead of
+`max(...)`, same result, no ambiguity. A `TS1160` at EOF in a file containing
+`sql<` is almost always this.
+
 ## 2026-08-24 — blast answers `full` from the last-indexed SHA; caller lines can drift from the PR head the client links to
 
 **Rubric:** Open Questions

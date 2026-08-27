@@ -27,7 +27,8 @@ flowchart TD
   ONB["/onboarding<br/>add repo"] -->|"POST /repos"| API[("Fastify API")]
   PULLS --> PR["/pulls/:number<br/>review detail<br/>(overview · diff · findings)<br/>diff = Smart Diff, grouped by role"]
 
-  AGENTS["/agents"] --> AGENT["/agents/:id<br/>editor (config · skills)"]
+  PULLS --> CTX["/repos/:repoId/context<br/>Project Context<br/>(read-only list · preview)"]
+  AGENTS["/agents"] --> AGENT["/agents/:id<br/>editor (config · skills · context)"]
   SKILLS["/skills<br/>library · preview · editor · import"]
   SETTINGS["/settings/:section<br/>API keys · models"]
 
@@ -37,6 +38,8 @@ flowchart TD
   AGENT -->|"GET/POST/PATCH/DELETE /agents/:id/skills"| API
   SKILLS -->|"/skills · /skills/:id · /skills/:id/(versions|agents)"| API
   SETTINGS -->|"/settings · /providers"| API
+  CTX -->|"GET /repos/:id/context · /context/doc<br/>POST /repos/:id/context/reindex"| API
+  AGENT -->|"GET/POST/PUT/DELETE /agents/:id/context-docs"| API
 ```
 
 Cross-cutting chrome lives in `src/components/app-shell` (nav, breadcrumbs,
@@ -68,6 +71,33 @@ landed the tab renders the plain flat viewer, so the grouping is an enhancement
 and never a dependency. The overlay itself is a prop of the shared
 `src/components/diff-viewer` (`DiffAnnotations`), which stays unaware of where
 the annotations came from.
+
+**Project Context (SPEC-01).** `/repos/:repoId/context` lists the Markdown a
+repository already contains (`specs/`, `docs/`, `insights/` at any depth), each row
+tagged with the root it came from and carrying its token cost (or a pending marker
+when the scan has not counted it yet), and previews any one document as rendered
+Markdown next to the number of agents attaching it. It is **read-only**: there is
+no create, edit, upload or delete control, because an edit written into the
+server's clone is destroyed by the next `git reset --hard` resync. Six states are distinct — loading,
+error + retry, empty (which names the three roots), still-cloning (`409
+repo_not_cloned`, handled in `ProjectContextView.tsx`, not in the list), populated,
+and a preview error that leaves the list interactive. The preview renders through the kit's
+`Markdown` primitive **as installed** and `rehype-raw` is absent from
+`package.json` on purpose — `DocPreview.tsx` explains why adding it would remove
+the control this pane depends on for repository-authored text.
+Attaching happens on two other surfaces: the agent editor's **Context** tab
+(`AgentEditor/_components/ContextTab/`), which also shows rows inherited from the
+agent's skills and rows whose file no longer resolves, and the skill editor modal,
+for a saved skill only. Hooks live in `src/lib/hooks/project-context.ts`; the four
+cache keys are separate roots in `keys.ts`, so every mutation invalidates each
+affected key **by name** — a prefix sweep would silently refresh nothing. The
+sidebar entry and the `g x` chord come from one `vendor/ui/nav.ts` row, proven by
+`src/components/app-shell/hooks/useGlobalShortcuts.test.ts`. Two honest gaps: the
+seeded demo repository has no clone, so the seeded studio always shows the
+still-cloning state, and the Context tab's reorder is drag-only, which its own
+comment records as an accepted WCAG 2.2 SC 2.1.1 conflict. Server behaviour,
+limits and the trust story:
+[`../server/src/modules/project-context/README.md`](../server/src/modules/project-context/README.md).
 
 ## Testing
 

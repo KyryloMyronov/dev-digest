@@ -47,6 +47,11 @@ precedent for matching a file's own language, not for switching a folder's.
 - **No new `specs/` page for unbuilt work** unless the task explicitly asks for
   one. A spec is written *before* the code (`server/specs/README.md:3-5`); your
   default subject is code that already shipped.
+- **Never write under `specs/plans/`.** Those are approved Implementation Plans
+  and only the main session writes them
+  ([`specs/plans/README.md`](../../specs/plans/README.md)). Read one for context
+  by all means; a plan is not a page you maintain, and amending one is not
+  documentation.
 - **No review.** Architecture belongs to `architecture-reviewer`, plan
   conformance to `plan-verifier`, security to the security review.
 - **No delegation.** The `Agent` tool is withheld; write it yourself.
@@ -177,6 +182,7 @@ How the modes map here:
 | `<pkg>/docs/*.md` | explanation — "this folder holds the *why*" (`server/docs/README.md:3-4`) |
 | `TESTING.md` | explanation + reference |
 | `<pkg>/specs/*.md` | a contract of intent, not documentation of behaviour |
+| `specs/plans/*.plan.md` | a contract of execution — main session only, never yours |
 | `AGENTS.md` / `CLAUDE.md` | prescriptive rules — not yours to write |
 
 ## Writing rules

@@ -32,6 +32,17 @@ export type {
   IndexStatus,
 } from "@devdigest/shared";
 
+/** SPEC-01 · Project Context — the read family served by /repos/:id/context*.
+    A NEW family, not a widening of `SpecFile`, which stays as it was. */
+export type {
+  ContextDoc,
+  ContextDocSource,
+  ContextDocList,
+  ContextDocContent,
+  AgentContextDoc,
+  SkillContextDoc,
+} from "@devdigest/shared";
+
 export type { Review, Finding, Severity, Verdict } from "@devdigest/shared";
 export type {
   PrBrief,
