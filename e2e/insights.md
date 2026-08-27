@@ -14,6 +14,33 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-27 — `agent-browser press` auto-repeats a held key, so a two-key chord is undrivable in a flow
+
+**Rubric:** Tool & Library Notes
+**Symptom:** asserting the studio's `g x` navigation chord in a flow. The
+primitive exists — `agent-browser` 0.35.1 does expose `press <key>` — and the
+chord works when driven by hand. In a flow it floods: instrumenting `window`
+keydown showed **~180 auto-repeat `g` events from a single `press g`**, and
+`press g` + `press x` produced ~90 interleaved `g,x` pairs. That is ~90 duplicate
+`router.push` calls, visible as a wall of `GET …/context 200` lines with climbing
+latency, and the URL was still settling past the 25 s step timeout.
+**Cause:** `press` holds the key down rather than tapping it, and there is no
+repeat-count or key-up flag on the command.
+**Fix:** do not assert a keyboard chord in a flow. Assert the equivalent UI
+affordance instead — for a `g`-chord that means clicking the sidebar row
+(`find text "Project Context" click` → `wait --url "/context"`), which still
+covers that the route lands. Put the chord itself in a **client** unit test: it
+is a `keydown` listener, so jsdom can dispatch `g` then `x` and assert
+`router.push` (`client/src/components/app-shell/hooks/useGlobalShortcuts.test.ts`).
+That test is the primary proof; the flow is the route-landing proof. Record the
+substitution in the flow's `description` so the gap is visible rather than
+looking like an oversight.
+
+**Also settled here:** `find text "<string>" click` **does** drive a role-less
+`<div onClick>` — it matches on text content with no role requirement. Two
+committed flows now rely on it for a collapsible section head that carries no
+ARIA role, so a role-less target is no longer a reason to route around a control.
+
 ## 2026-08-09 — `wait --text` matches RENDERED text, so `text-transform` breaks it
 
 **Rubric:** Recurring Errors & Fixes

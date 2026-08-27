@@ -6,7 +6,7 @@ description: >
   library/API/spec/upstream behaviour from the web. Returns a structured report
   with conclusions, evidence, links and an explicit "Not established" list. Use
   when a question must be answered before code is written. Never edits files.
-  Do NOT use for: producing a plan (planner), implementing anything
+  Do NOT use for: producing a plan (implementation-planner), implementing anything
   (implementer), writing tests (test-writer), judging architectural boundaries
   (architecture-reviewer), checking a plan was delivered (plan-verifier), or
   writing documentation (doc-writer).

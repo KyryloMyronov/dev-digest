@@ -22,3 +22,11 @@
     transform: translateY(0);
   }
 }
+
+/* Jump-to-finding pulse (L03 · Smart Diff): the target diff row washes accent
+   and fades out, without hiding the row's own add/del colouring for long. */
+@keyframes ddFlash {
+  0% { background: var(--accent-bg); box-shadow: inset 3px 0 0 var(--accent); }
+  60% { background: var(--accent-bg); box-shadow: inset 3px 0 0 var(--accent); }
+  100% { background: transparent; box-shadow: none; }
+}

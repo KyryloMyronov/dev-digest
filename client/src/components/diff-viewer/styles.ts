@@ -29,6 +29,17 @@ export const s = {
     whiteSpace: "nowrap",
   } satisfies CSSProperties,
   fileStat: { fontSize: 12 } satisfies CSSProperties,
+  // Bare-button wrapper for the finding badge: clickable without inheriting
+  // the header's fold toggle, visually just the badge.
+  findingJump: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: 0,
+    border: "none",
+    background: "none",
+    cursor: "pointer",
+    font: "inherit",
+  } satisfies CSSProperties,
   addText: { color: "var(--code-add-text)" } satisfies CSSProperties,
   delText: { color: "var(--code-del-text)" } satisfies CSSProperties,
   fileBody: {
@@ -79,6 +90,24 @@ export function chevronFor(open: boolean): CSSProperties {
 export function lineRowFor(kind: Line["kind"]): CSSProperties {
   const background = kind === "add" ? "var(--code-add)" : kind === "del" ? "var(--code-del)" : "transparent";
   return { display: "flex", alignItems: "stretch", fontSize: 13, lineHeight: "20px", background };
+}
+
+/**
+ * A line a review finding points at. Deliberately a left rule + a wash rather
+ * than a background swap: the add/del tint is what tells you whether the line
+ * was added or removed, and a finding must not overwrite that fact.
+ */
+export function findingRowFor(kind: Line["kind"]): CSSProperties {
+  return {
+    ...lineRowFor(kind),
+    boxShadow: "inset 3px 0 0 0 var(--warn)",
+    background:
+      kind === "add"
+        ? "var(--code-add)"
+        : kind === "del"
+          ? "var(--code-del)"
+          : "var(--warn-bg)",
+  };
 }
 
 /** Gutter sign colour per line kind. */

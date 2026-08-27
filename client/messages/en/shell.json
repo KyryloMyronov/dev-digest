@@ -39,6 +39,7 @@
     "cancel": "Cancel",
     "reply": "Reply",
     "viewOnGitHub": "View on GitHub",
+    "jumpToFinding": "Jump to the finding's line",
     "postedToGitHub": "Posts to GitHub immediately",
     "outdatedTitle": "{count} comment(s) on older revisions"
   }

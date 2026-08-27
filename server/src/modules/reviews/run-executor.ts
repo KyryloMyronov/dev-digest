@@ -15,6 +15,10 @@ import { renderIntentBlock } from './intent-sources.js';
 // `skills` is another module's table; the row → DTO mapper and the block renderer
 // are shared through `_shared/` because `reviews` legitimately reads a skill row.
 import { skillPromptBlock, toSkillDto } from '../_shared/skills.js';
+// SPEC-01 — the project-context facade's PUBLIC surface. `types.ts` is a module's
+// public surface (`no-cross-module-internals`), and the instance is resolved from
+// `container.projectContext`, never constructed here.
+import type { ResolvedContext } from '../project-context/types.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
 export class RunCancelledError extends Error {
@@ -238,6 +242,11 @@ export class ReviewRunExecutor {
       // guidance layer is best-effort: see buildSkillBlocks.
       const skills = await this.buildSkillBlocks(agent.id, runLog);
 
+      // SPEC-01 — the agent's attached project-context documents, read from the
+      // clone. Best-effort in the strongest sense: the facade never throws and
+      // never runs long (AC-47, AC-48), so there is no try/catch here on purpose.
+      const context = await this.buildProjectContext(workspaceId, agent, repo, runLog);
+
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
       // the CI runner). The service owns only I/O: repo-intel context resolution
@@ -260,6 +269,15 @@ export class ReviewRunExecutor {
         // what the with/without comparison measures against. An empty array
         // would be equivalent today but states the wrong intent.
         ...(skills.length > 0 ? { skills } : {}),
+        // SPEC-01 — project-context documents, tagged with their paths so each
+        // fenced block's `source` attribute is the document's path (AC-60). The
+        // key is OMITTED when nothing resolved, so the prompt is byte-identical
+        // to the no-context baseline (AC-50) — the same contract as `skills`.
+        ...(context.texts.length > 0
+          ? {
+              specs: context.injected.map((path, i) => ({ path, text: context.texts[i]! })),
+            }
+          : {}),
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
@@ -366,7 +384,12 @@ export class ReviewRunExecutor {
         ],
         raw_output: outcome.raw,
         memory_pulled: [],
-        specs_read: [],
+        // AC-51 — the paths actually injected, in prompt order.
+        specs_read: context.injected,
+        // D-Q5 — the rest, with why. An EMPTY array means "resolution ran and
+        // nothing was dropped"; `null` (the failure path below) means "nothing
+        // was resolved at all". The distinction is the point of the field.
+        specs_skipped: context.skipped,
         // Persisted log = the run's FULL event buffer (incl. shared pre-work:
         // diff load + intent), not just events recorded inside this method.
         log: runLog.logFor(runId),
@@ -401,6 +424,79 @@ export class ReviewRunExecutor {
       this.container.runBus.complete(runId);
       throw err;
     }
+  }
+
+  /**
+   * SPEC-01 — resolve, read and log the agent's project-context documents.
+   *
+   * `container.projectContext` owns every failure mode (AC-47 throws, AC-48
+   * slow, AC-43 unreadable, AC-49 oversize, AC-45 over budget) and always
+   * returns a `ResolvedContext`, so this method has no error path of its own —
+   * the same degrade-to-empty posture as `container.repoIntel`, where empty
+   * means "no enrichment", never an error.
+   *
+   * What it adds is the OBSERVABILITY (AC-44, AC-46). A block missing because
+   * the user detached the document and a block missing because a read failed are
+   * indistinguishable in the assembled prompt; the Live Log line is the only
+   * thing that tells them apart — the same argument `buildSkillBlocks` makes for
+   * "Skills disabled, not in prompt: …".
+   *
+   * NFR-10 — every line here carries PATHS and counts. No document body reaches
+   * a log call, and `PromptSectionMetric` has no field that could hold one, so
+   * the guarantee is by construction rather than by redaction.
+   */
+  private async buildProjectContext(
+    workspaceId: string,
+    agent: AgentRow,
+    repo: typeof schema.repos.$inferSelect,
+    runLog: RunLogger,
+  ): Promise<ResolvedContext> {
+    let resolved: ResolvedContext;
+    try {
+      resolved = await this.container.projectContext.resolveForRun({
+        workspaceId,
+        agentId: agent.id,
+        repoOwner: repo.owner,
+        repoName: repo.name,
+        // The facade absorbs AC-47/48 internally, so without an injected sink a
+        // degrade would be invisible in the run's log.
+        onLog: (msg) => runLog.info(msg),
+      });
+    } catch (err) {
+      // Belt AND braces. The facade's contract is that it never throws, and its
+      // own tests hold it to that — but AC-47 is absolute, so the caller does
+      // not *rely* on another object's promise for the one property that must
+      // not fail. Anything that gets past the facade lands here as "no context".
+      runLog.info(
+        `project context: facade failed, reviewing without it — ${(err as Error).message}`,
+      );
+      return { texts: [], injected: [], skipped: [] };
+    }
+
+    if (resolved.injected.length > 0) {
+      runLog.info(
+        `Project context attached (${resolved.injected.length}): ${resolved.injected.join(', ')}`,
+      );
+    }
+
+    // AC-44 — one line naming each document that could not be read.
+    const unread = resolved.skipped.filter((s) => s.reason === 'unread').map((s) => s.path);
+    if (unread.length > 0) {
+      runLog.info(`Project context unreadable, not in prompt: ${unread.join(', ')}`);
+    }
+
+    const oversize = resolved.skipped.filter((s) => s.reason === 'oversize').map((s) => s.path);
+    if (oversize.length > 0) {
+      runLog.info(`Project context too large, not in prompt: ${oversize.join(', ')}`);
+    }
+
+    // AC-46 — one line naming EVERY document excluded at the token ceiling.
+    const overBudget = resolved.skipped.filter((s) => s.reason === 'budget').map((s) => s.path);
+    if (overBudget.length > 0) {
+      runLog.info(`Project context over budget, not in prompt: ${overBudget.join(', ')}`);
+    }
+
+    return resolved;
   }
 
   /**
@@ -566,6 +662,9 @@ export class ReviewRunExecutor {
       raw_output: '',
       memory_pulled: [],
       specs_read: [],
+      // A failed or cancelled run legitimately read nothing, and inventing a
+      // value here would misreport it. `null`, not `[]`.
+      specs_skipped: null,
       log: this.container.runBus.buffer(runId).map((e) => ({ t: e.t, kind: e.kind, msg: e.msg })),
     };
   }

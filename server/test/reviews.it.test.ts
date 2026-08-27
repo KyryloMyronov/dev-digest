@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { startPg, dockerAvailable, type PgFixture } from './helpers/pg.js';
-import { waitForPrRuns } from './helpers/runs.js';
+import { waitForPrRuns, waitForTrace } from './helpers/runs.js';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/platform/config.js';
 import { seed } from '../src/db/seed.js';
@@ -8,6 +8,7 @@ import { MockLLMProvider, MockEmbedder, MockGitClient } from '../src/adapters/mo
 import * as t from '../src/db/schema.js';
 import { eq } from 'drizzle-orm';
 import type { Review } from '@devdigest/shared';
+import type { ProjectContext } from '../src/modules/project-context/types.js';
 import { intentLlm } from './helpers/intent.js';
 
 const hasDocker = await dockerAvailable();
@@ -303,5 +304,269 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     // seed has 2 enabled agents; we may have created more above in this PR's ws.
     expect(body.runs.length).toBeGreaterThanOrEqual(2);
     await app.close();
+  });
+
+  // ------------------------- SPEC-01: project context on the run path -------
+  //
+  // The run half of SPEC-01: AC-41 (the engine's `specs` input), AC-43/44 (an
+  // unreadable document), AC-46, AC-47 (a throwing facade), AC-48 (a resolution
+  // that expired), AC-50 (the key omitted) and AC-51 (`specs_read`), plus
+  // NFR-10 (no document body in any log line).
+  //
+  // Attachments are inserted DIRECTLY here: the attach route validates every
+  // path against a real clone walk, which `project-context.it.test.ts` covers.
+  // This suite is about what the executor does with rows that already exist.
+  describe('project context (SPEC-01)', () => {
+    const DOCS = {
+      'specs/public-api.md': 'AUTH-IS-REQUIRED-ON-EVERY-ENDPOINT',
+      'docs/adr/0004-caching.md': 'CACHE-READS-FOR-30-SECONDS',
+    };
+
+    function appWithGit(git: MockGitClient) {
+      return buildApp({
+        config: config(),
+        db: pg.handle.db,
+        overrides: {
+          embedder: new MockEmbedder(),
+          git,
+          llm: {
+            openai: new MockLLMProvider('openai', { structured: REVIEW_FIXTURE }),
+            openrouter: intentLlm(),
+          },
+        },
+      });
+    }
+
+    async function makeAgent(app: Awaited<ReturnType<typeof buildApp>>, name: string) {
+      return (
+        await app.inject({
+          method: 'POST',
+          url: '/agents',
+          payload: { name, provider: 'openai', model: 'gpt-4.1', system_prompt: 'sec' },
+        })
+      ).json();
+    }
+
+    async function runAndTrace(
+      app: Awaited<ReturnType<typeof buildApp>>,
+      prId: string,
+      agentId: string,
+    ) {
+      const body = (
+        await app.inject({ method: 'POST', url: `/pulls/${prId}/review`, payload: { agentId } })
+      ).json();
+      const runId = body.runs[0].run_id;
+      await waitForPrRuns(pg.handle.db, prId, { expected: 1 });
+      // MANDATORY before reading a trace: the executor marks the run terminal
+      // BEFORE persisting the trace, so polling on run status alone races a
+      // ~45-line window and reads a 404 (server/insights.md, 2026-08-11).
+      await waitForTrace(pg.handle.db, runId);
+      const trace = (await app.inject({ method: 'GET', url: `/runs/${runId}/trace` })).json();
+      const [run] = await pg.handle.db
+        .select()
+        .from(t.agentRuns)
+        .where(eq(t.agentRuns.id, runId));
+      return { runId, trace, run: run! };
+    }
+
+    // AC-41 + AC-51 + AC-60 end-to-end, and NFR-10.
+    it('injects the attached documents, records their paths, and logs no body', async () => {
+      const git = new MockGitClient({ diff: DIFF, files: DOCS });
+      const app = await appWithGit(git);
+      const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+      const agent = await makeAgent(app, 'Ctx Sec');
+
+      await pg.handle.db.insert(t.agentContextDocs).values([
+        { workspaceId, agentId: agent.id, path: 'specs/public-api.md', order: 0 },
+        { workspaceId, agentId: agent.id, path: 'docs/adr/0004-caching.md', order: 1 },
+      ]);
+
+      const { trace, run } = await runAndTrace(app, pr.id, agent.id);
+
+      expect(run.status).toBe('done');
+      // AC-41 + AC-42 + AC-60 — the documents reached the engine's `specs` slot
+      // and each block is fenced under its own path.
+      expect(trace.prompt_assembly.specs).toContain('<untrusted source="specs/public-api.md">');
+      expect(trace.prompt_assembly.specs).toContain('AUTH-IS-REQUIRED-ON-EVERY-ENDPOINT');
+      expect(trace.prompt_assembly.specs).toContain(
+        '<untrusted source="docs/adr/0004-caching.md">',
+      );
+      expect(trace.prompt_assembly.user).toContain('## Project context');
+      // AC-51 — every injected path, in prompt order.
+      expect(trace.specs_read).toEqual(['specs/public-api.md', 'docs/adr/0004-caching.md']);
+      expect(trace.specs_skipped).toEqual([]);
+
+      // NFR-10 — the Live Log names the PATHS and never the bodies.
+      const log = (trace.log as { msg: string }[]).map((l) => l.msg);
+      expect(log.some((m) => m.includes('Project context attached (2)'))).toBe(true);
+      for (const body of Object.values(DOCS)) {
+        expect(log.some((m) => m.includes(body))).toBe(false);
+      }
+
+      await pg.handle.db.delete(t.agentContextDocs);
+      await app.close();
+    });
+
+    // AC-43 + AC-44 — an unreadable document is skipped with a reason and named
+    // in the Live Log; the rest of the context still reaches the prompt.
+    it('records an unreadable document as skipped and names it in the log', async () => {
+      class ThrowingGit extends MockGitClient {
+        override async readFile(repo: { owner: string; name: string }, path: string) {
+          if (path === 'specs/deleted.md') throw new Error('ENOENT: no such file');
+          return super.readFile(repo, path);
+        }
+      }
+      const app = await appWithGit(new ThrowingGit({ diff: DIFF, files: DOCS }));
+      const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+      const agent = await makeAgent(app, 'Ctx Unread');
+
+      await pg.handle.db.insert(t.agentContextDocs).values([
+        { workspaceId, agentId: agent.id, path: 'specs/deleted.md', order: 0 },
+        { workspaceId, agentId: agent.id, path: 'specs/public-api.md', order: 1 },
+      ]);
+
+      const { trace, run } = await runAndTrace(app, pr.id, agent.id);
+
+      expect(run.status).toBe('done');
+      expect(trace.specs_read).toEqual(['specs/public-api.md']);
+      expect(trace.specs_skipped).toEqual([{ path: 'specs/deleted.md', reason: 'unread' }]);
+      const log = (trace.log as { msg: string }[]).map((l) => l.msg);
+      expect(
+        log.some((m) => m.includes('unreadable') && m.includes('specs/deleted.md')),
+      ).toBe(true);
+
+      await pg.handle.db.delete(t.agentContextDocs);
+      await app.close();
+    });
+
+    // AC-47 + AC-50 — a facade that throws must not fail the run, and the
+    // `specs` key is OMITTED rather than sent empty, so the prompt is
+    // byte-identical to the no-context baseline.
+    it('completes the run with no project context when the facade throws (AC-47)', async () => {
+      const throwing: ProjectContext = {
+        resolveForRun: async () => {
+          throw new Error('project-context exploded');
+        },
+      };
+      const app = await buildApp({
+        config: config(),
+        db: pg.handle.db,
+        overrides: {
+          embedder: new MockEmbedder(),
+          git: new MockGitClient({ diff: DIFF, files: DOCS }),
+          projectContext: throwing,
+          llm: {
+            openai: new MockLLMProvider('openai', { structured: REVIEW_FIXTURE }),
+            openrouter: intentLlm(),
+          },
+        },
+      });
+      const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+      const agent = await makeAgent(app, 'Ctx Throwing');
+      await pg.handle.db
+        .insert(t.agentContextDocs)
+        .values({ workspaceId, agentId: agent.id, path: 'specs/public-api.md', order: 0 });
+
+      const { trace, run } = await runAndTrace(app, pr.id, agent.id);
+
+      expect(run.status).toBe('done');
+      expect(trace.prompt_assembly.specs ?? null).toBeNull();
+      expect(trace.prompt_assembly.user).not.toContain('## Project context');
+      expect(trace.specs_read).toEqual([]);
+      expect(trace.specs_skipped).toEqual([]);
+
+      await pg.handle.db.delete(t.agentContextDocs);
+      await app.close();
+    });
+
+    /**
+     * AC-48 — a resolution that ran out of wall clock leaves the run with no
+     * project context.
+     *
+     * The facade OWNS the timeout by design (`PROJECT_CONTEXT_RESOLVE_TIMEOUT_MS`,
+     * raced inside `resolver.ts`), so a mock that hangs forever would hang the
+     * run rather than exercise anything — the executor deliberately has no
+     * competing timer. What is asserted here is the executor-visible OUTCOME of
+     * an expiry: a slow facade that returns the empty result the real one returns
+     * on timeout. The timeout itself is proven hermetically in
+     * `resolver.test.ts` ("abandons a slow resolution and returns no context").
+     */
+    it('completes the run with no project context when resolution expired (AC-48)', async () => {
+      const expired: ProjectContext = {
+        resolveForRun: async () => {
+          await new Promise((r) => setTimeout(r, 50));
+          return { texts: [], injected: [], skipped: [] };
+        },
+      };
+      const app = await buildApp({
+        config: config(),
+        db: pg.handle.db,
+        overrides: {
+          embedder: new MockEmbedder(),
+          git: new MockGitClient({ diff: DIFF, files: DOCS }),
+          projectContext: expired,
+          llm: {
+            openai: new MockLLMProvider('openai', { structured: REVIEW_FIXTURE }),
+            openrouter: intentLlm(),
+          },
+        },
+      });
+      const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+      const agent = await makeAgent(app, 'Ctx Slow');
+      await pg.handle.db
+        .insert(t.agentContextDocs)
+        .values({ workspaceId, agentId: agent.id, path: 'specs/public-api.md', order: 0 });
+
+      const { trace, run } = await runAndTrace(app, pr.id, agent.id);
+
+      expect(run.status).toBe('done');
+      expect(trace.prompt_assembly.specs ?? null).toBeNull();
+      expect(trace.specs_read).toEqual([]);
+
+      await pg.handle.db.delete(t.agentContextDocs);
+      await app.close();
+    });
+
+    // AC-46 — every document dropped at the token ceiling is named in the log
+    // and recorded with reason `budget`. Driven through the real facade with a
+    // body large enough to bust the 8 000-token budget on its own.
+    it('names every document excluded at the token budget (AC-46)', async () => {
+      const huge = 'x '.repeat(20_000); // ≈ 20 000 tokens
+      const app = await appWithGit(
+        new MockGitClient({
+          diff: DIFF,
+          files: { 'specs/huge.md': huge, 'specs/public-api.md': DOCS['specs/public-api.md'] },
+        }),
+      );
+      const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+      const agent = await makeAgent(app, 'Ctx Budget');
+      await pg.handle.db.insert(t.agentContextDocs).values([
+        { workspaceId, agentId: agent.id, path: 'specs/huge.md', order: 0 },
+        { workspaceId, agentId: agent.id, path: 'specs/public-api.md', order: 1 },
+      ]);
+
+      const { trace, run } = await runAndTrace(app, pr.id, agent.id);
+
+      expect(run.status).toBe('done');
+      expect(trace.specs_read).toEqual([]);
+      expect(trace.specs_skipped).toEqual([
+        { path: 'specs/huge.md', reason: 'budget' },
+        { path: 'specs/public-api.md', reason: 'budget' },
+      ]);
+      const log = (trace.log as { msg: string }[]).map((l) => l.msg);
+      expect(
+        log.some(
+          (m) =>
+            m.includes('over budget') &&
+            m.includes('specs/huge.md') &&
+            m.includes('specs/public-api.md'),
+        ),
+      ).toBe(true);
+      // NFR-10 again, on the skip path.
+      expect(log.some((m) => m.includes(huge.slice(0, 40)))).toBe(false);
+
+      await pg.handle.db.delete(t.agentContextDocs);
+      await app.close();
+    });
   });
 });

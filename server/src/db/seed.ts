@@ -9,6 +9,7 @@ import {
   TEST_QUALITY_REVIEWER_PROMPT,
 } from './seed-prompts.js';
 import { seedConventions } from './seed-conventions.js';
+import { seedProjectContext } from './seed-context.js';
 import { seedSkills } from './seed-skills.js';
 import { seedClaudeSkills } from './seed-claude-skills.js';
 
@@ -574,6 +575,12 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
 
   // ---- demo conventions + the scan that "found" them ----
   await seedConventions(db, workspaceId, repoId);
+
+  // ---- SPEC-01: one agent run + its trace, with a project-context block ----
+  // AFTER the agents and the sample review: the run is hung off PR #482 and the
+  // seeded review is linked to it, so the PR page's trace button renders and the
+  // drawer opens with real findings and an agent name.
+  await seedProjectContext(db, workspaceId, repoId);
 
   return { workspaceId, userId };
 }

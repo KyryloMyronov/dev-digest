@@ -126,6 +126,8 @@ export interface FullSymbolRow {
 export interface ResolvedCallerRow {
   fromPath: string;
   toSymbol: string;
+  /** The changed file the reference resolved to (never NULL under the query's filter). */
+  declFile: string | null;
   line: number;
   rank: number;
 }
@@ -499,22 +501,27 @@ export class RepoIntelRepository {
       .where(and(eq(t.symbols.repoId, repoId), inArray(t.symbols.path, paths)));
   }
 
-  /** Resolved cross-file callers of symbols declared in `declFiles`. */
+  /**
+   * Resolved cross-file callers of symbols declared in `declFiles`.
+   * LEFT JOIN on file_rank: a caller in a file the rank step never scored
+   * (graph failure, partial index) still counts — with rank 0.
+   */
   async getResolvedCallers(
     repoId: string,
     declFiles: string[],
     names: string[],
   ): Promise<ResolvedCallerRow[]> {
     if (declFiles.length === 0 || names.length === 0) return [];
-    return this.db
+    const rows = await this.db
       .select({
         fromPath: t.references.fromPath,
         toSymbol: t.references.toSymbol,
+        declFile: t.references.declFile,
         line: t.references.line,
         rank: t.fileRank.rank,
       })
       .from(t.references)
-      .innerJoin(
+      .leftJoin(
         t.fileRank,
         and(
           eq(t.fileRank.repoId, t.references.repoId),
@@ -528,6 +535,20 @@ export class RepoIntelRepository {
           inArray(t.references.toSymbol, names),
         ),
       );
+    return rows.map((r) => ({ ...r, rank: r.rank ?? 0 }));
+  }
+
+  /**
+   * Reverse import edges: all `from_file → to_file` rows whose `to_file` is in
+   * `toFiles` — i.e. "who imports these files". Served by
+   * `file_edges_repo_to_idx`, O(degree) per level of the blast walk.
+   */
+  async getReverseEdges(repoId: string, toFiles: string[]): Promise<IndexerEdgeRow[]> {
+    if (toFiles.length === 0) return [];
+    return this.db
+      .select({ fromFile: t.fileEdges.fromFile, toFile: t.fileEdges.toFile })
+      .from(t.fileEdges)
+      .where(and(eq(t.fileEdges.repoId, repoId), inArray(t.fileEdges.toFile, toFiles)));
   }
 
   /** Per-file facts (endpoints/crons) for the given files. */

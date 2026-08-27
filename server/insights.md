@@ -14,6 +14,139 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-27 — two Docker runtimes installed: `docker context` says Colima, but the socket that reaches host :5432 is Rancher Desktop's
+
+**Rubric:** Recurring Errors & Fixes
+**Supersedes:** 2026-08-02 — `*.it.test.ts` can't find Docker under Colima
+**Symptom:** `pnpm exec vitest run .it.test` fails every file at `startPg()` with
+`Could not find a working container runtime strategy`. Following the 2026-08-02
+entry and exporting `DOCKER_HOST=unix://$HOME/.colima/default/docker.sock` does
+**not** fix it. Worse and more confusing: `pnpm db:migrate` reports
+`✓ migrations applied`, and then `docker exec devdigest-postgres psql` shows the
+new tables absent — because those two commands reach *different* Postgres
+instances.
+**Cause:** both Colima and Rancher Desktop are installed. `docker context ls`
+shows `colima` active, so plain `docker ps` / `docker exec` talk to a **stale
+Colima container** (its last applied migration was ~2026-08-17). But host port
+5432 is forwarded by **Rancher Desktop**, so the app, `db:migrate` and `db:seed`
+all hit Rancher's container. testcontainers finds neither socket by default.
+**Fix:** point both variables at the Rancher socket — this is what works on this
+machine, and it is the one whose ports reach the host:
+
+```sh
+DOCKER_HOST=unix://$HOME/.rd/docker.sock \
+TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock \
+  pnpm exec vitest run .it.test --reporter=dot
+```
+
+Note the asymmetry: `DOCKER_HOST` takes the **real** `~/.rd/docker.sock` path,
+while the override must stay the literal `/var/run/docker.sock` — that is the
+path Ryuk is told to bind *inside* the container. Setting the override to
+`$HOME/.rd/docker.sock` fails with `mkdir ...: operation not supported`.
+Repeated container churn also yields intermittent `Failed to connect to Reaper`
+(11 tests skipped, no test body run) — an environment result, not a test
+failure. Rerun. If `docker exec` and the app ever disagree about schema again,
+suspect this before suspecting the migration. Deleting the stale Colima
+container would remove the trap.
+
+## 2026-08-27 — `lstat` + `isSymbolicLink()` is NOT a containment check: it follows every intermediate path component
+
+**Rubric:** What Doesn't Work
+**Symptom:** a guard that resolves a repo-relative path, `lstat`s it and skips
+`isSymbolicLink()` was believed to stop a symlink escaping the clone. It stops
+only the case where the **final component** is the link. Measured:
+
+```
+BEFORE swap: lstat.isSymbolicLink = false | content = "legit"
+AFTER  swap: lstat.isSymbolicLink = false | content = "HOST SECRET"
+realpath      = /private/tmp/lstat-probe/outside/foo.md
+still lexically inside clone?  true
+```
+
+**Cause:** `lstat` declines to follow only the last component. Every directory
+above it is resolved normally, so replacing `specs/sub` with a symlink out of the
+tree leaves `specs/sub/foo.md` reporting `isSymbolicLink() === false`, lexically
+inside the clone, and reading the host file. A `resolve()` + `startsWith(root)`
+test is lexical and cannot see it either.
+**Fix:** `realpath` the candidate and compare it against a **`realpath`'d root**
+(`resolver.ts:230,269-273`). Both sides need resolving: on macOS the clone can
+sit under a symlinked prefix (`/var` → `/private/var`), so comparing a resolved
+path against an unresolved root rejects *everything*. Containment means equal to
+the root or starting with root + `sep` — bare `startsWith(root)` accepts a
+sibling like `/clones/acme/payments-api-evil`. Keep the `isSymbolicLink()` skip
+alongside it if a symlink pointing *back inside* the tree should also be refused;
+`realpath` alone would accept that one.
+
+## 2026-08-27 — a `realpath`/`stat` gate on the review path must treat "unresolvable" as unknown, not as outside
+
+**Rubric:** Codebase Patterns
+**Symptom:** adding a containment gate to the resolver that skipped a document
+whenever `realpath` returned null turned three green tests in
+`test/reviews.it.test.ts` red — every document reported `unread` and
+`specs_read` came back empty.
+**Cause:** `MockGitClient`, the virtual `GitClient` the review suites inject,
+serves document bodies with **no clone on disk at all**, so every `realpath`
+throws ENOENT. "Unresolvable" is a normal state in this lane, not an attack.
+**Fix:** let a null resolution **fall through** and let the read decide — a real
+read of an unresolvable path fails and is already reported as `unread`
+(`resolver.ts:262-268`). This loses nothing: a malicious symlink pointing at a
+file that actually exists resolves *successfully* and is caught by the
+containment comparison; it never reaches the null branch. Note this is the
+opposite posture from `assertDiscovered` in the same module, which deliberately
+fails closed — the difference is that an unknown *membership* answer has no
+corroborating signal downstream, whereas an unresolvable *path* is re-checked by
+the read itself.
+
+## 2026-08-27 — `sql<A | B>` does not parse: the pipe inside the generic makes tsc read it as a comparison
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** writing a Drizzle raw aggregate as
+``sql<Date | null>`max(${t.contextDocTokens.computedAt})` `` fails the whole file
+with `TS1160: Unterminated template literal` reported at **EOF**, nowhere near
+the actual line.
+**Cause:** `tsc` resolves `sql<Date` as a `<` comparison rather than a type
+argument, so the backtick that follows opens a template literal that never
+closes. The error location is useless because the parser is lost from that point
+on.
+**Fix:** avoid the union in the type argument. Either alias it
+(`type MaybeDate = Date | null` and use `sql<MaybeDate>`), or sidestep the
+aggregate — `repository.ts:108-121` uses `ORDER BY … DESC LIMIT 1` instead of
+`max(...)`, same result, no ambiguity. A `TS1160` at EOF in a file containing
+`sql<` is almost always this.
+
+## 2026-08-24 — blast answers `full` from the last-indexed SHA; caller lines can drift from the PR head the client links to
+
+**Rubric:** Open Questions
+**Symptom:** none yet — latent. During L04 verification, `GET /pulls/:id/blast` returned `status: 'full'` for a PR whose branch was 4 days newer than `repo_index_state.lastIndexedSha` (visible via `GET /repos/:id/index-state`). PR sync (`GET /pulls/:id`) refreshes `pr_files` but never the index.
+**Cause:** `getBlastRadius`/`getDependents` serve whatever SHA the indexer last stamped; `status` reflects index *completeness at that SHA*, not freshness relative to the PR. Meanwhile the client builds caller links with `githubBlobUrl(..., pr.head_sha, file, line)`, so a caller-file `line` from the stale index can point at the wrong line of the head blob when that caller file changed since indexing.
+**Fix:** none applied — constraint to know. When accuracy matters, compare `getIndexState().lastIndexedSha` with `pr.head_sha` (or its merge-base) and trigger `POST /repos/:id/resync`; a possible follow-up is surfacing `lastIndexedSha` in `BlastResponse.reason` when it trails the PR.
+
+## 2026-08-18 — a Zod `response:` schema on a route works; the convention had zero adoption, not a blocker
+
+**Rubric:** What Works
+**Symptom:** none — this is the answer to a question the 2026-08-12 entry below
+leaves open. That entry records that **0 of 53 endpoints** declare
+`schema: { response: … }` "despite `server/CLAUDE.md` asking for it" and
+concludes "treat it as aspirational", which reads as a warning that the
+convention does not actually function here. It does; nobody had tried it.
+**Cause:** `app.ts:64-65` already installs both compilers from
+`fastify-type-provider-zod` (`setValidatorCompiler` **and**
+`setSerializerCompiler`), so the serializer half was wired from the start and
+simply unused. Zero adoption was inertia — every module copied the neighbouring
+route, and no route had one to copy.
+**Fix:** declare it. `GET /pulls/:id/smart-diff`
+(`modules/pulls/routes.ts:43-50`) is the first one to, and it behaves exactly as
+documented: the handler's return type is inferred from the schema, and a payload
+that drifts from the contract fails at serialization instead of reaching the
+studio. `test/pulls-smart-diff.it.test.ts` exercises it through `app.inject()`,
+so the contract is covered by the same assertions that cover the behaviour —
+which is why that suite needs no separate shape test. Two things worth knowing
+before adding one to an existing route: a `.nullish()` field simply serialises
+away when absent (no need to emit `null`), and the schema *strips* unknown keys,
+so a route whose service returns extra fields the contract omits would silently
+stop sending them. Prefer it on new endpoints; on an existing one, check the
+service's return shape against the contract first.
+
 ## 2026-08-17 — a feature-model default the tests don't override reaches a REAL provider, and the suite bills you for it
 
 **Rubric:** What Doesn't Work

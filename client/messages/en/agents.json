@@ -46,6 +46,7 @@
     "tabs": {
       "config": "Config",
       "skills": "Skills",
+      "context": "Context",
       "evals": "Evals",
       "stats": "Stats",
       "ci": "CI"
@@ -103,5 +104,31 @@
   },
   "mount": {
     "body": "Mount point for {owner}. The Agent Editor shell + tab routing are wired by A2 — {owner} renders this tab."
+  },
+  "context": {
+    "title": "Project context",
+    "hint": "Attached documents are read at run start and injected into this agent's prompt as untrusted data, in the order below. Documents inherited from a skill follow the agent's own.",
+    "counts": "{attached} of {discovered} attached",
+    "filterLabel": "Filter documents by path",
+    "filterPlaceholder": "Filter by path…",
+    "attachedTitle": "Attached",
+    "availableTitle": "Available in this repository",
+    "attach": "Attach {path}",
+    "detach": "Detach {path}",
+    "dragHint": "Drag to reorder {path}",
+    "inherited": "from {skill}",
+    "unresolved": "not found in this repository",
+    "noneAttached": "No documents attached yet.",
+    "noneAvailable": "Every discovered document is already attached.",
+    "noMatches": "No documents match “{q}”.",
+    "tokens": "{count} tok",
+    "tokensPending": "counting…",
+    "total": "{tokens} of {budget} tokens",
+    "overBudget": "— over the run budget; the run will drop the overflow.",
+    "pendingCount": "({count} not counted yet)",
+    "emptyTitle": "No documents to attach",
+    "emptyBody": "This repository has no Markdown under specs/, docs/ or insights/ — or it is still cloning. Open the Project Context page to see what DevDigest found.",
+    "emptyCta": "Open Project Context",
+    "error": "Couldn’t save that change: {message}"
   }
 }

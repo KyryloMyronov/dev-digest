@@ -13,7 +13,7 @@ description: >
   about the code (researcher).
 tools: Read, Grep, Glob, Bash, Skill
 disallowedTools: Edit, Write, NotebookEdit, Agent, WebSearch, WebFetch
-model: opus
+model: sonnet
 effort: high
 color: red
 ---

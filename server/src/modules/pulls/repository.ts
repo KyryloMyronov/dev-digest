@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { PrFindingCounts } from '@devdigest/shared';
 import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
@@ -32,6 +32,20 @@ export interface UpsertPullValues {
   status: string;
   openedAt: Date | null;
   updatedAt: Date | null;
+}
+
+/**
+ * One non-dismissed finding plus the identity of the review it came from — the
+ * shape `smart-diff.ts` needs to decide which reviews are current.
+ */
+export interface ReviewedFindingRow {
+  reviewId: string;
+  /** Null for a review with no agent behind it (seeded, or a legacy row). */
+  agentId: string | null;
+  reviewedAt: Date;
+  file: string;
+  startLine: number;
+  endLine: number;
 }
 
 export interface DiffStats {
@@ -125,6 +139,37 @@ export class PullsRepository {
 
   async listCommits(prId: string): Promise<PrCommitRow[]> {
     return this.db.select().from(t.prCommits).where(eq(t.prCommits.prId, prId));
+  }
+
+  /**
+   * L03 · Smart Diff — the PR's findings with the review each came from. Same
+   * read-only cross into `reviews`/`findings` as the list rollups below: the
+   * smart diff highlights findings, it does not own them.
+   *
+   * Every review is returned, not just the newest; picking which ones count is
+   * a policy decision (`smart-diff.ts#latestReviewPerAgent`), and SQL is the
+   * wrong place for it — `agent_id` is nullable and ties on `created_at` are
+   * real, both of which are far easier to reason about (and test) in one pure
+   * function than in a window function.
+   *
+   * Dismissed findings are excluded here, because that is a fact about the
+   * finding rather than a policy: a line the reviewer has already waved off must
+   * not keep painting itself. Accepted ones stay — accepting a finding means it
+   * is real, which is exactly when you want to see the line.
+   */
+  async findingsWithReviewByPr(prId: string): Promise<ReviewedFindingRow[]> {
+    return this.db
+      .select({
+        reviewId: t.findings.reviewId,
+        agentId: t.reviews.agentId,
+        reviewedAt: t.reviews.createdAt,
+        file: t.findings.file,
+        startLine: t.findings.startLine,
+        endLine: t.findings.endLine,
+      })
+      .from(t.findings)
+      .innerJoin(t.reviews, eq(t.findings.reviewId, t.reviews.id))
+      .where(and(eq(t.reviews.prId, prId), isNull(t.findings.dismissedAt)));
   }
 
   // ---- PR-list rollups ------------------------------------------------------

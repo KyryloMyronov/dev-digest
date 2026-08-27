@@ -6,27 +6,51 @@ Project-scoped subagents for this repo. One file per agent, loaded from
 who owns what, what goes in and what comes out. The rules themselves live in the
 agent files; nothing here restates them.
 
-Invoke with the `Agent` tool (`subagent_type: planner`), or let automatic
+Invoke with the `Agent` tool (`subagent_type: implementation-planner`), or let automatic
 delegation pick one — that routing is driven **only** by each file's
 `description`, which is why every description ends with an explicit
 `Do NOT use for:` naming its siblings.
+
+To run the *build* half of the chain in one go — `implementer`, one review round,
+a bounded fix loop, close-out — type [`/impl`](../commands/impl.md) instead of
+wiring the agents by hand. See **Commands** at the bottom of this file.
 
 ## The set
 
 | Agent | Owns | Writes? | Model | In → Out |
 |---|---|---|---|---|
+| [`spec-creator`](spec-creator.md) | Turning a feature idea plus its designs into one `SPEC-NN` specification — EARS acceptance criteria, a four-axis design review, module interactions | **yes — spec files only, hook-enforced** | `opus` · `effort: high` | pass 1: a feature description + design images → **questions + design findings + proposals + research commissions `R-n`**, nothing written · pass 2: the same brief + the author's answers + any `researcher` reports → `SPEC-NN-slug.md` + the index row |
 | [`researcher`](researcher.md) | Answering a question before code is written — internal (how this repo works) or external (library/API/spec behaviour) | no | `sonnet` | a concrete question → research report with `path:line` / URL evidence and an explicit *Not established* list |
-| [`planner`](planner.md) | Turning a request into an executable Development Plan for this codebase | no | `opus` · `effort: high` | a feature/bug + optional research → **Development Plan** (Markdown, returned as text) |
-| [`implementer`](implementer.md) | Building an approved plan in `server/` and `client/`, then running the existing suites | **yes** | `opus` · `effort: high` | an approved Development Plan → code changes + **Implementation Report** |
+| [`implementation-planner`](implementation-planner.md) | Turning **settled requirements** into an executable Implementation Plan — after reviewing them, asking what it cannot resolve, and asking single- vs multi-agent | no | `opus` · `effort: high` | a spec (or an unambiguous request) → **Requirements Review** + questions, then, once answered, an **Implementation Plan** (Markdown, returned as text — the caller saves it to `specs/plans/`) |
+| [`implementer`](implementer.md) | Building an approved plan in `server/` and `client/`, then running the existing suites | **yes** | `opus` · `effort: high` | a path to an approved plan in `specs/plans/` → code changes + **Implementation Report** |
 | [`test-writer`](test-writer.md) | Writing tests into the four existing suites, then running the lane and reporting what each test actually asserts | **yes — tests only** | `opus` · `effort: high` | behaviour needing coverage → test files + **Test Report** |
-| [`architecture-reviewer`](architecture-reviewer.md) | Judging the boundaries a deterministic rule cannot decide, on a change set | no | `opus` · `effort: high` | a diff or ref range → **Architecture Review** (`file:line` · severity · consequence · confidence) |
-| [`plan-verifier`](plan-verifier.md) | Checking delivered code against every item of a Development Plan | no | `opus` · `effort: high` | a plan (+ optional Implementation Report) → **Plan Conformance Report** with a traceability matrix |
+| [`architecture-reviewer`](architecture-reviewer.md) | Judging the boundaries a deterministic rule cannot decide, on a change set | no | `sonnet` · `effort: high` | a diff or ref range → **Architecture Review** (`file:line` · severity · consequence · confidence) |
+| [`plan-verifier`](plan-verifier.md) | Checking delivered code against every item of an Implementation Plan | no | `sonnet` · `effort: high` | a plan from `specs/plans/` (+ optional Implementation Report) → **Plan Conformance Report** with a traceability matrix |
 | [`doc-writer`](doc-writer.md) | Documenting shipped behaviour in the right place under `docs/`, with the folder index updated | **yes — docs only** | `opus` | shipped behaviour → doc pages + **Documentation Report** |
 
 Not in this set, deliberately: **security review** and the **pre-PR contract
 checks**. Those are skills — `security`, `api-breaking-changes`,
 `api-response-changes`, `response-schema`, `pr-self-review` — invoked from the
-main thread, not agents. Architecture review *is* in the set now
+main thread, not agents.
+
+`spec-creator` *is* an agent, and it pays a price for it: `AskUserQuestion` is
+stripped from every subagent, so it cannot interview the author directly. Hence
+the two passes. Pass 1 returns numbered questions with options and consequences
+and writes nothing; the main thread puts them to the author; pass 2 receives the
+answers and writes the file. Never run pass 2 without having asked — a spec whose
+forks were resolved by a subagent guessing is the thing the interview exists to
+prevent.
+
+The same shape covers the other thing a subagent cannot do: `Agent` is withheld
+from every agent here to stop fan-out, so `spec-creator` cannot send a
+`researcher` itself. Pass 1 therefore returns **commissions** `R-1…R-n` alongside
+its questions — each a self-contained brief in `researcher`'s own input shape
+(mode, question, why it blocks, where to look, what counts as answered). You run
+them, **several at once in one message**, and hand the reports to pass 2. The
+distinction is worth holding onto: a `Q-n` has an answer only in the author's
+head, an `R-n` has one in the code or in a vendor's docs. Putting an `R-n` to the
+author asks them to do research; putting a `Q-n` to a `researcher` produces a
+confident report about a decision nobody has made. Architecture review *is* in the set now
 ([`architecture-reviewer`](architecture-reviewer.md)); `implementer` still names
 what every review should look at in its `Handoff` section and never runs any of
 them on its own work. That rule generalises: **no agent here reviews or verifies
@@ -38,10 +62,21 @@ its own output.**
 flowchart LR
   Q["question blocking design"] --> R["researcher<br/>read-only"]
   R -->|"report"| H(["you"])
-  T["feature / bug"] --> P["planner<br/>read-only · permissionMode: plan"]
+  T["feature / bug"] --> SC["spec-creator<br/>pass 1: questions, writes nothing"]
+  SC -->|"questions + design findings"| H
+  SC -->|"commissions R-1…R-n"| H
+  H -->|"one researcher per commission,<br/>run in parallel"| R
+  R -.->|"reports"| SC2
+  H -->|"answers"| SC2["spec-creator<br/>pass 2: writes the file"]
+  SC2 --> SF[("specs/SPEC-NN.md<br/>or &lt;pkg&gt;/specs/")]
+  SF -->|"a path"| P["implementation-planner<br/>read-only · permissionMode: plan"]
+  T -.->|"unambiguous task"| P
   R -.->|"facts"| P
-  P -->|"Development Plan (text)"| H
-  H -->|"approved plan"| I["implementer<br/>writes code"]
+  P -->|"phase 1: Requirements Review<br/>+ questions + exec mode"| H
+  H -->|"answers (SendMessage)"| P
+  P -->|"phase 2: Implementation Plan (text)"| H
+  H -->|"approve, then save"| PF[("specs/plans/<br/>SPEC-NN-slug.plan.md")]
+  PF -->|"a path"| I["implementer<br/>writes code"]
   I -->|"Implementation Report"| H
   H -->|"tests wanted"| TW["test-writer<br/>writes tests only"]
   TW -->|"Test Report"| H
@@ -51,18 +86,50 @@ flowchart LR
   AR -->|"findings"| H
   H -->|"handoff"| PV["plan-verifier<br/>read-only"]
   PV -->|"conformance verdict"| H
-  P -.->|"the plan"| PV
+  PF -.->|"the contract"| PV
   I -.->|"report = a claim"| PV
   H -->|"handoff"| REV["security review<br/>pre-PR checks"]
 ```
 
-**Handoff is manual by design (variant A).** `planner` has no write tool, so the
-plan comes back as text; you approve or amend it, then hand it to `implementer`.
-Nothing is persisted to disk in between. This mirrors native Plan Mode, which
-also does not write the plan out
-([permission-modes](https://code.claude.com/docs/en/permission-modes)), and it
-keeps the approval gate with a human — subagents cannot ask a question
-mid-task, so they must not own an approval step.
+**Approval is manual by design; the approved plan is then persisted.**
+`implementation-planner` has no write tool, so the plan comes back as text and
+you approve or amend it — subagents cannot ask a question mid-task, so they must
+not own an approval step, and the agent that plans must not be able to enact its
+own plan. That much mirrors native Plan Mode
+([permission-modes](https://code.claude.com/docs/en/permission-modes)).
+
+What does **not** stay in chat is the approved plan. The **main session** writes
+it to [`specs/plans/`](../../specs/plans/README.md) —
+`SPEC-NN-<spec-slug>.plan.md`, or `TASK-<slug>.plan.md` where there is no spec —
+and every downstream agent is handed that **path**, not a paste:
+
+1. `implementer` usually runs in a fresh session, and reconstructing a plan from
+   scrollback is how a build quietly diverges from what was approved;
+2. `plan-verifier` refuses to verify without the plan, and the file is the only
+   version of it that is provably the one that was signed off;
+3. `SPEC-NN AC-n → plan step → code` stays traceable months later;
+4. a plan amended mid-build produces a diff instead of a silently different plan.
+
+The planner closes every phase-2 reply with the metadata header and a
+`Save to: specs/plans/…` line, so saving it is mechanical. Naming, the status
+lifecycle and the append-only amendment log:
+[`specs/plans/README.md`](../../specs/plans/README.md). **Only the main session
+writes there** — no subagent does, which is what keeps "a human approved this"
+true of every file in the folder.
+
+**A subagent cannot ask a question — which is why planning is two-phase.**
+`AskUserQuestion` is stripped from every subagent, so `implementation-planner`
+returns its questions instead of asking them, and the main thread relays:
+
+1. `Agent({subagent_type: 'implementation-planner', …})` → a **Requirements
+   Review** ending in `STATUS: AWAITING ANSWERS`, with the single- vs
+   multi-agent choice among the questions;
+2. you put those questions to the author with `AskUserQuestion`;
+3. `SendMessage({to: 'implementation-planner', message: <the answers>})` — the
+   agent keeps its context and returns the **Implementation Plan**.
+
+Do not skip step 2 by answering on the author's behalf, and never hand an
+`AWAITING ANSWERS` reply to `implementer` — it is a review, not a plan.
 
 ## `researcher`
 
@@ -77,15 +144,39 @@ mid-task, so they must not own an approval step.
   questions instead of a report.
 - **Output:** report with per-claim evidence (`path:line` or a full URL),
   confidence labels, and *Not established*.
+- **Fan-out:** one question per agent, and independent questions run
+  concurrently — spawn them in a single message. `spec-creator`'s pass-1
+  commissions (`R-n`) are written to be dispatched exactly this way, one
+  `researcher` each. Splitting a broad question into narrow ones is what makes
+  that safe; handing the same agent three unrelated questions is what makes its
+  *Not established* list unreadable.
 
-## `planner`
+## `implementation-planner`
 
 - **Responsibility:** produce a plan `implementer` can execute end to end
   without making an architectural decision the plan should have made. Every step
   carries the files it touches, the project skills that step must be implemented
-  with, its dependency, and a checkable *Done when*.
-- **Not its job:** implementing, reviewing, or going to the web (that is
-  `researcher`) — missing external facts become *Open questions*.
+  with, its dependency, a checkable *Done when*, and — in multi-agent mode — the
+  agent that owns it. Before any of that it **reviews the requirements it was
+  handed** (buildable · testable · contradicts the repo · contradicts shipped
+  code · already exists · missing · self-contradictory · untraceable),
+  recommends how the work could be done better, and asks what it cannot settle
+  from the code.
+- **Writes no specifications.** Requirements come from `specs/` via the
+  `spec-creator` agent. A gap in them is a *finding* addressed to the author,
+  never a hole this agent fills: no acceptance criteria, no user stories, no
+  problem statement of its own authorship. Every step traces to a requirement it
+  can point at — `SPEC-NN AC-n`, or a quoted line from the request.
+- **Asks how the build should run.** Every phase 1 reply ends with a single-
+  vs multi-agent question made concrete: which steps to which agent, what runs
+  in parallel, the extra cost, and whether the parallel groups actually touch
+  disjoint files. The chosen mode shapes the plan's *Execution* section.
+- **Two-phase by necessity** — see *Handoff* above. Phase 1 is the Requirements
+  Review and the questions; phase 2, after `SendMessage` carries the answers, is
+  the plan. It never returns both in one reply.
+- **Not its job:** writing or amending a spec (`spec-creator`), implementing,
+  reviewing, or going to the web (that is `researcher`) — missing external facts
+  become *Open questions*.
 - **Permissions:** `tools: Read, Grep, Glob, Bash, Skill` ·
   `disallowedTools: Edit, Write, NotebookEdit, Agent, WebSearch, WebFetch` ·
   `permissionMode: plan`. Read-only is enforced twice on purpose: a parent
@@ -93,11 +184,22 @@ mid-task, so they must not own an approval step.
   `permissionMode`, so the tool allowlist is the barrier that always holds.
 - **Model:** `opus`, `effort: high` — plan quality is what the whole chain
   inherits.
-- **Input:** a feature request or bug, plus any research already done.
-- **Output artifact:** a **Development Plan** — `Goal & scope` ·
-  `Context read` · `Impact map` · `Steps` · `Verification` ·
-  `Constraints & invariants` · `Open questions` ·
-  `Out of scope / follow-ups`. Its final message *is* the plan.
+- **Input:** an approved spec (`specs/SPEC-NN-*.md`) or an unambiguous request,
+  plus any research already done. It also reads `specs/plans/` first: an already
+  approved plan overlapping this work is a finding, not something to re-plan
+  around silently.
+- **Persistence:** it writes nothing, ever. Phase 2 opens with the metadata
+  header (`Spec` · `Status` · `Execution` · `Approved`) and closes with a
+  `Save to: specs/plans/…` line naming the path it computed and whether that file
+  already exists; the **main session** does the write, after the author approves.
+- **Output artifacts:** phase 1 — a **Requirements Review**: `What I was given` ·
+  `Context read` · `Requirements review` (severity + evidence per finding) ·
+  `Recommendations` · `Questions for the author` (execution mode among them).
+  Phase 2 — an **Implementation Plan**: `Requirements traced` ·
+  `Decisions taken` · `Goal & scope` · `Impact map` ·
+  `Execution — single-agent | multi-agent` · `Steps` · `Verification` ·
+  `Constraints & invariants` · `Open questions` · `Out of scope / follow-ups` ·
+  the `Save to:` line. Its final message *is* one of the two.
 - **Owns the skill routing table.** Which project skill applies to which layer
   is decided here and stamped onto each step, so implementation cannot
   contradict the rules the work was planned against.
@@ -115,9 +217,14 @@ mid-task, so they must not own an approval step.
   inherits the session's, so you stay the gate on writes; hard-coding
   `acceptEdits` into a code-writing agent is exactly the anti-pattern to avoid.
 - **Model:** `opus`, `effort: high`.
-- **Input:** an approved Development Plan (or a single unambiguous task).
-- **Output artifact:** code changes plus an **Implementation Report** —
-  `Status` · `Changes` · `Verification` · `Deviations from the plan` ·
+- **Input:** a **path** to an approved plan under `specs/plans/` — read in full,
+  `## Amendments` included, before the first edit (an amendment overrides the step
+  it names). Pasted plan text still works and is recorded as such. Given neither,
+  on a task bigger than one unambiguous step, it reports *Blocked* rather than
+  reconstructing a plan.
+- **Output artifact:** code changes plus an **Implementation Report** — naming
+  the plan file it built from, then `Status` · `Changes` · `Verification` ·
+  `Deviations from the plan` ·
   `Blocked / not done` · `Handoff` · `Follow-ups`. Verification quotes real
   command output; a suite it could not run makes the status `Partial`, never
   `Completed`.
@@ -162,7 +269,9 @@ mid-task, so they must not own an approval step.
   read-only rests on the write-free allowlist, which is the barrier that always
   holds. `check-contracts.sh --fix` is forbidden **in prose only**; `Bash` cannot
   distinguish it.
-- **Model:** `opus`, `effort: high`.
+- **Model:** `sonnet`, `effort: high` — it quotes `file:line` and runs two
+  scripts; the judgement it adds does not need Opus, and it re-runs once per fix
+  iteration in [`/impl`](../commands/impl.md).
 - **Input:** by default the unmerged change set (`git diff`, `git diff --cached`,
   `main..HEAD`); a whole-tree audit only on request.
 - **Output artifact:** an **Architecture Review** — `Verdict` · `Coverage` ·
@@ -174,7 +283,7 @@ mid-task, so they must not own an approval step.
 
 ## `plan-verifier`
 
-- **Responsibility:** decompose a Development Plan into a numbered checklist
+- **Responsibility:** decompose a Implementation Plan into a numbered checklist
   **before** reading any code, then judge each row in isolation against an
   artifact — a line it opened, or output it ran and quoted.
 - **Not its job:** producing or amending the plan, fixing anything, structural
@@ -185,10 +294,17 @@ mid-task, so they must not own an approval step.
   **No `permissionMode`, deliberately** — it has to run `pnpm typecheck`,
   `pnpm lint:arch` and `pnpm exec vitest run …` for real. `--fix`, `db:generate`,
   `db:migrate`, `db:seed` and every git mutation are forbidden in prose.
-- **Model:** `opus`, `effort: high`.
-- **Input:** the plan (text or path), optionally an Implementation Report.
-  **With no plan, its entire output is a request for the plan** — conformance
-  without a contract is not conformance.
+- **Model:** `sonnet`, `effort: high` — the work is mechanical traceability
+  (decompose the plan, open the line, run the suite, quote it), which is the
+  cheapest kind of reasoning to buy. Watch one thing: a `Verified` row whose
+  evidence is not quoted output is the failure mode of the smaller model, and it
+  is grounds for putting it back on `opus`.
+- **Input:** the plan — normally a path under `specs/plans/`, read whole with its
+  `## Amendments` log applied — optionally an Implementation Report. Given no
+  plan it checks `specs/plans/` itself: exactly one `Status: approved` match to
+  the change set is verified against and **declared as inferred** in the first
+  line; zero, several, or an uncertain match make its **entire output a request
+  for the plan**. Conformance without a contract is not conformance.
 - **Output artifact:** a **Plan Conformance Report** — `Verdict` ·
   `Traceability matrix` · `Evidence log` · `Contradicted` ·
   `Unknown / unverifiable` · `Requirements the plan never served` ·
@@ -231,10 +347,11 @@ has to be stated somewhere a human can check. This is that table.
 |---|---|---|
 | `implementer` | production code in `server/`, `client/`, `reviewer-core/`; tests the plan explicitly ordered; generated migrations via `pnpm db:generate` | `server/src/db/migrations/**` by hand, `client/src/vendor/**` (change the canonical source), locked skills, generated output |
 | `test-writer` | **test files only** — `server/test/**`, `server/src/**/*.test.ts`, `client/src/**/*.test.{ts,tsx}`, `reviewer-core/test/*.test.ts`, and `server/test/helpers/**` on request | every production path, including `client/messages/en/**` (product strings) and `server/src/adapters/mocks.ts` (a shipped adapter, not test infrastructure); `e2e/specs/*.flow.json`; and **any existing test, to make a new one pass** |
-| `doc-writer` | `docs/**`, `<pkg>/docs/**`, the `README.md` files, `TESTING.md`, `<pkg>/specs/**` (only when asked) | `insights.md` (any of them), `AGENTS.md` / `CLAUDE.md`, code, tests, a new `docs/adr/` tree |
+| `doc-writer` | `docs/**`, `<pkg>/docs/**`, the `README.md` files, `TESTING.md`, `<pkg>/specs/**` (only when asked) | `insights.md` (any of them), `AGENTS.md` / `CLAUDE.md`, `specs/plans/**`, code, tests, a new `docs/adr/` tree |
 | `architecture-reviewer` | nothing | everything — including `check-contracts.sh --fix` |
 | `plan-verifier` | nothing | everything — including `--fix`, `db:migrate`, `db:seed` |
-| `planner`, `researcher` | nothing | everything |
+| `implementation-planner`, `researcher` | nothing | everything — `specs/**` explicitly included, so the agent that plans against a spec can never write one, and the agent that plans cannot persist its own plan |
+| the **main session** (not an agent) | `specs/plans/**` — the approved plan, and its append-only `## Amendments` log | — |
 
 Two distinctions worth stating flatly, because the names alone do not carry them:
 
@@ -242,6 +359,12 @@ Two distinctions worth stating flatly, because the names alone do not carry them
   to a plan.** The reviewer does not read the plan and does not care whether the
   work was ordered; the verifier does not critique structure even when it sees
   something. Each hands the other's concern over in a single line.
+- **The plan file is written by nobody in this table.** `specs/plans/**` belongs
+  to the main session alone. `spec-creator` may write `SPEC-NN` files in `specs/`
+  and in each package's `specs/` — a hook refuses it anything else, `specs/plans/**`
+  included; `implementation-planner` may write nothing at all. That is
+  what makes "a human approved this" true of every file in the folder —
+  [`specs/plans/README.md`](../../specs/plans/README.md).
 - **`test-writer` vs `implementer` = a path boundary, not a judgement call.**
   `implementer` writes tests when a plan step orders them, as part of that
   change. `test-writer` is for coverage as the task itself, and it may not touch
@@ -270,6 +393,56 @@ Three name collisions in this repo that cost time if you meet them cold:
   the studio's skill-import path can be demoed end to end. `test-writer` reads it
   as a checklist and applies its three questions; it is not part of
   `.claude/skills/`.
+
+## Commands
+
+`.claude/commands/*.md` is a third layer next to agents and skills: a **prompt
+injected into the main session**. That is what an orchestrator needs and what a
+subagent cannot be — it can `AskUserQuestion`, it can spawn agents, and it may
+write the one folder only the main session owns (`specs/plans/**`). Every command
+here sets `disable-model-invocation: true`: these runs are expensive, so they
+start because a human typed them. **Note the folder's own rule — every `.md` in
+it becomes a slash command, so there is no `README.md` there; this section is it.**
+
+| Command | Runs | Does **not** run |
+|---|---|---|
+| [`/run-plan`](../commands/run-plan.md) | the whole chain: `spec-creator` ×2 + `researcher` ×n → `implementation-planner` ×2 → `implementer` → one review round → a per-finding fix loop → `test-writer` on the gaps → a fresh `plan-verifier` → close-out | `doc-writer` only with `--docs` |
+| [`/impl`](../commands/impl.md) | `implementer` → one review round (`architecture-reviewer` + `plan-verifier` + the skill checks the diff earns) → a bounded fix loop → close-out | `spec-creator`, `implementation-planner`, `test-writer`; `doc-writer` only with `--docs` |
+
+**`/run-plan` is the front door; `/impl` is the shortcut.** `/run-plan` takes an idea, a
+spec path, extra requirements (`--notes`) and design images (`--design`), and
+owns the two things no subagent can do: it relays every `AskUserQuestion` round
+(spec questions, planner questions, findings triage) and it writes the two
+folders only the main session may write. Its fix loop is **per finding** rather
+than per iteration — each row in the ledger carries its own state and attempt
+count, a claimed fix is checked against the diff before a reviewer is spent on
+it, and a row that survives two attempts stops the loop instead of consuming a
+third. `--from spec|research|plan|build|review|fix|tests|close` resumes from the
+run's state file, so a long run survives a crashed session.
+
+Two edges `/run-plan` closes that hand-wiring the agents leaves open: the `--design`
+images are copied into `specs/assets/SPEC-NN/` between `spec-creator`'s two
+passes (the agent cannot copy a binary, so citations otherwise point at
+untracked files), and `test-writer`'s input is the list of rows `plan-verifier`
+left `Unknown`/`Partial` rather than "cover the feature" — which is both the
+cheap version of the stage and the only thing that acts on those rows at all.
+
+**`/impl` starts at the plan file, not at the idea.** Spec writing and planning
+are interview- and approval-shaped: the author runs `spec-creator` and
+`implementation-planner` by hand, and the main session saves the approved plan to
+[`specs/plans/`](../../specs/plans/README.md). `/impl` picks the chain up from
+that file — `Status: approved`, on disk — so a build can never begin from a plan
+nobody signed off.
+
+**The fix loop is why the command exists.** A review whose findings nobody acts
+on cost tokens and bought a list. `/impl` merges every finding into one triaged
+ledger (in the scratchpad, never in the plan file — that is
+[`specs/plans/README.md`](../../specs/plans/README.md)'s rule), hands
+`implementer` **only** the rows marked *fix now*, re-reviews by continuing the
+same reviewer for the first two iterations and spawning a fresh, unanchored one
+for the last, and stops — with a question to the author rather than another
+attempt — at `--max-iter` (default 3), or as soon as a single finding survives
+two fixes.
 
 ## Sources behind the agent rules
 
@@ -301,7 +474,7 @@ Design practice (primary):
   end-state-based. This is the shape of a plan `Step`.
 - [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
   — the "Goldilocks zone", section-structured prompts, and tool-set bloat as an
-  anti-pattern (5 tools for `planner`, 8 for `implementer`).
+  anti-pattern (5 tools for `implementation-planner`, 8 for `implementer`).
 - [Best practices for Claude Code sub-agents (PubNub)](https://www.pubnub.com/blog/best-practices-for-claude-code-sub-agents/)
   *(secondary)* — over-broad tool grants, and **an agent must not review or
   certify its own work**; that is why review is split out of `implementer`.

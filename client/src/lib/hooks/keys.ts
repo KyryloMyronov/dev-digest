@@ -48,10 +48,30 @@ export const repoKeys = {
 export const pullKeys = {
   listByRepo: (repoId: Id) => ["pulls", repoId] as const,
   detail: (prId: Id) => ["pull", prId] as const,
+  /** L03 · Smart Diff — the PR's files grouped by review role. Its own root, so
+      it is never swept by an invalidation of the detail or the list. */
+  smartDiff: (prId: Id) => ["pull-smart-diff", prId] as const,
+  /** L04 · Blast Radius — its own root, like smartDiff: invalidate explicitly. */
+  blast: (prId: Id) => ["pull-blast", prId] as const,
 };
 
 export const contextKeys = {
+  /** The repo's discovered document list (ContextDocList). */
   byRepo: (repoId: Id) => ["context", repoId] as const,
+  /** One document's text. Its own root, like pullKeys.smartDiff: it shares no
+      prefix with `byRepo`, so a reindex invalidates the list by name and leaves
+      cached bodies alone — the bodies did not change, only their token counts. */
+  doc: (repoId: Id, path: string | null | undefined) =>
+    ["context-doc", repoId, path] as const,
+  /**
+   * An agent's ordered attachments, INCLUDING the ones inherited from its
+   * skills. Its own root: it shares no prefix with `byRepo`, so an attach must
+   * invalidate both by name — the list's `attached_agents` count (AC-15) moves
+   * when this does.
+   */
+  agentDocs: (agentId: Id, repoId: Id) => ["agent-context-docs", agentId, repoId] as const,
+  /** A skill's ordered attachments. */
+  skillDocs: (skillId: Id, repoId: Id) => ["skill-context-docs", skillId, repoId] as const,
 };
 
 export const repoIntelKeys = {

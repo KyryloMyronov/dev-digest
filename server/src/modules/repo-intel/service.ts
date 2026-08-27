@@ -33,6 +33,9 @@ import type {
   BlastCallerRow,
   BlastChangedSymbol,
   BlastResult,
+  DegradedReason,
+  DependentsResult,
+  EndpointPath,
   FileRankRow,
   IndexResult,
   IndexState,
@@ -351,9 +354,13 @@ export class RepoIntelService implements RepoIntel {
       else symsByFile.set(s.path, [s]);
     }
 
-    const callers: BlastCallerRow[] = [];
+    // Group per changed symbol so MAX_CALLERS_PER_SYMBOL means what it says:
+    // each symbol keeps its own top-N callers by rank, and a hub symbol can't
+    // crowd every other symbol out of the result.
+    const bySymbol = new Map<string, BlastCallerRow[]>();
     const seenCaller = new Set<string>();
     for (const c of callerRows) {
+      if (c.declFile !== null && c.fromPath === c.declFile) continue; // never the decl's own file
       const enclosing =
         enclosingFromRows(symsByFile.get(c.fromPath) ?? [], c.line) ??
         c.fromPath.split('/').pop() ??
@@ -361,13 +368,24 @@ export class RepoIntelService implements RepoIntel {
       const key = `${c.fromPath}|${enclosing}|${c.toSymbol}`;
       if (seenCaller.has(key)) continue;
       seenCaller.add(key);
-      callers.push({
+      const row: BlastCallerRow = {
         file: c.fromPath,
         symbol: enclosing,
         viaSymbol: c.toSymbol,
         line: c.line,
         rank: c.rank,
-      });
+      };
+      const group = bySymbol.get(c.toSymbol);
+      if (group) group.push(row);
+      else bySymbol.set(c.toSymbol, [row]);
+    }
+
+    const callers: BlastCallerRow[] = [];
+    const callersTruncatedFor: string[] = [];
+    for (const [name, group] of bySymbol) {
+      group.sort((a, b) => b.rank - a.rank);
+      if (group.length > MAX_CALLERS_PER_SYMBOL) callersTruncatedFor.push(name);
+      callers.push(...group.slice(0, MAX_CALLERS_PER_SYMBOL));
     }
     callers.sort((a, b) => b.rank - a.rank);
 
@@ -383,10 +401,73 @@ export class RepoIntelService implements RepoIntel {
 
     return {
       changedSymbols,
-      callers: callers.slice(0, MAX_CALLERS_PER_SYMBOL),
+      callers,
       impactedEndpoints: [...endpoints],
       factsByFile,
+      ...(callersTruncatedFor.length > 0 ? { callersTruncatedFor } : {}),
       degraded: false,
+    };
+  }
+
+  /**
+   * Reverse-import walk: which files depend (directly or through ≤ `maxDepth`
+   * import hops) on the changed files, and which HTTP endpoints those
+   * dependents serve (file_facts). One `file_edges` query per level via the
+   * reverse index. Degrades like every other read — never throws.
+   */
+  async getDependents(
+    repoId: string,
+    changedFiles: string[],
+    maxDepth: number = BFS_DEPTH,
+  ): Promise<DependentsResult> {
+    const degraded = (reason: DegradedReason): DependentsResult => ({
+      endpointPaths: [],
+      dependents: [],
+      degraded: true,
+      reason,
+    });
+    if (!this.container.config.repoIntelEnabled) return degraded('flag_off');
+    if (changedFiles.length === 0) return { endpointPaths: [], dependents: [] };
+
+    const state = await this.repo.tryGetIndexState(repoId);
+    if (!state || (state.status !== 'full' && state.status !== 'partial')) {
+      return degraded('no_data');
+    }
+
+    // BFS over reverse edges, keeping the shortest discovered chain per file.
+    const changedSet = new Set(changedFiles);
+    const chains = new Map<string, string[]>(); // dependent file → changedFile..file
+    const depths = new Map<string, number>();
+    let frontier = changedFiles;
+    for (let depth = 1; depth <= maxDepth && frontier.length > 0; depth++) {
+      const edges = await this.repo.getReverseEdges(repoId, frontier);
+      const next: string[] = [];
+      for (const e of edges) {
+        if (changedSet.has(e.fromFile) || chains.has(e.fromFile)) continue;
+        const base = chains.get(e.toFile) ?? [e.toFile];
+        chains.set(e.fromFile, [...base, e.fromFile]);
+        depths.set(e.fromFile, depth);
+        next.push(e.fromFile);
+      }
+      frontier = next;
+    }
+
+    const dependentFiles = [...chains.keys()];
+    const facts = await this.repo.getFileFacts(repoId, dependentFiles);
+    const endpointPaths: EndpointPath[] = [];
+    for (const f of facts) {
+      const chain = chains.get(f.filePath) ?? [f.filePath];
+      for (const endpoint of f.endpoints) {
+        endpointPaths.push({ endpoint, file: f.filePath, chain });
+      }
+    }
+
+    return {
+      endpointPaths,
+      dependents: dependentFiles.map((file) => ({
+        file,
+        depth: depths.get(file) ?? maxDepth,
+      })),
     };
   }
 

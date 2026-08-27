@@ -3,41 +3,37 @@
 A spec is written **before** the code. Pipeline and API documentation lives in
 [`../README.md`](../README.md).
 
-File naming: `LNN-slug.md` for roadmap lessons, `slug.md` otherwise.
+**This folder holds the specs whose work is confined to `reviewer-core/`.** A
+feature that also touches `server/`, `client/` or `mcp/` goes in the repo-root
+[`specs/`](../../specs/README.md) folder instead — as does any change to a shared
+Zod contract. The full routing table is in that README.
+
+`SPEC-NN-slug.md`, with `NN` **globally unique across the repository** and
+allocated as max existing + 1 over every spec folder at once. Every spec is
+indexed once, in [`specs/README.md`](../../specs/README.md#index) — this file
+keeps no second table.
+
+Write one with the [`spec-creator`](../../.claude/agents/spec-creator.md) agent.
+It runs in two passes: questions and design findings first, the file once you
+have answered.
 
 ## Template
 
-```markdown
-# <Feature>
+The section list and the writing rule for each section live in
+[`.claude/skills/spec-creator/references/template.md`](../../.claude/skills/spec-creator/references/template.md),
+mirrored for humans in [`specs/README.md`](../../specs/README.md#template). The
+older engine-only template that used to sit here is superseded by it.
 
-**Status:** draft | agreed | building | shipped
-**Lesson:** L0N (or —)
+Two engine-specific things that template expects you to fill in:
 
-## Problem
-What the engine can't express or detect today.
-
-## Scope
-- Which pipeline stage changes: prompt · structured output · reduce · grounding · output.
-
-## Out of scope
-- Explicitly excluded.
-
-## Purity check  ← MANDATORY SECTION
-Does this need any I/O? If yes, it does NOT belong in this package: name the
-caller-side piece (server module or CI runner) and what crosses the seam as a
-resolved value. State the new `ReviewInput` fields, if any — they must be plain
-data, never handles or clients.
-
-## Contract changes
-New/changed schemas in `@devdigest/shared` (both copies). New `Finding.kind`
-values must state whether grounding treats them as diff-anchored or full-file.
-
-## Acceptance criteria
-- [ ] Observable statements, asserted with a mock `LLMProvider`.
-- [ ] Grounding behaviour stated explicitly if findings are involved.
-
-## Open questions
-```
+- **Purity check** — does this need any I/O? If yes it does **not** belong in
+  this package: name the caller-side piece (server module or CI runner) and what
+  crosses the seam as a resolved value. State any new `ReviewInput` fields — they
+  must be plain data, never handles or clients. This goes under *Module
+  interactions*, and a spec here without it is not reviewable.
+- **Grounding** — a new `Finding.kind` must say whether grounding treats it as
+  diff-anchored or full-file, and acceptance criteria are asserted against a mock
+  `LLMProvider`.
 
 ## Backlog — engine-side slices of the lesson roadmap
 

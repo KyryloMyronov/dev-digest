@@ -18,6 +18,117 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-27 — a subagent's self-reported deviation list beats the reviewers' findings; ask for it explicitly and read it first
+
+**Rubric:** What Works
+**Symptom:** across a 33-step build, `implementer` self-reported **9 deviations**
+in one cut and **15** in the next. Two `plan-verifier` passes confirmed all 24 as
+described. Meanwhile three review rounds (`architecture-reviewer` ×3,
+`plan-verifier` ×3, four skill checks ×2) produced **0 blocking** findings
+between them. The single most valuable item in the whole review cycle came from a
+**follow-up line in the builder's own report**, not from a reviewer: it noted
+that the containment fix it had just been told to write could not see a symlinked
+*directory* component. That was a live security hole in a fix the coordinator had
+prescribed as sufficient.
+**Cause:** a deviation is cheap for the agent that made it and expensive for a
+reviewer to discover — the builder knows where it departed from the instructions;
+a reviewer has to re-derive it from the diff. The asymmetry is large enough that
+the list is a better-yield artifact than an independent pass.
+**Fix:** put it in the prompt as a required report section, in these words or
+close: *"every deviation from a literal reading of the plan"*, and say that the
+previous build's list was the highest-value part of its report. Then **read the
+deviations and follow-ups before the findings**, and hand the list to
+`plan-verifier` as its named highest-value target — verifying a disclosed
+deviation is a diff-read, whereas finding one is a search. Corollary: do **not**
+treat a long deviation list as a bad sign. The build with 15 deviations was the
+cleaner of the two.
+
+## 2026-08-27 — mutation-check any test that pins a security property, or it pins the symptom instead
+
+**Rubric:** What Works
+**Symptom:** a resolver was told not to read a symlinked document, and to record
+it as `{ reason: 'unread' }`. A test asserting the *reason* passes against an
+implementation that reads the file, discards the bytes, and reports `unread`
+anyway — the byte still left the disk and could still land in a log or a prompt.
+The same trap in reverse: the first symlink test swapped only the *file*, so it
+passed against a fix that missed the *directory* vector entirely.
+**Cause:** the observable a criterion names (a reason code, a status) is usually
+one step removed from the property that matters (the absence of a read). Tests
+default to the named observable.
+**Fix:** two habits, both cheap.
+1. **Assert the absence, not the label** — `expect(readFile.mock.calls).toEqual(['specs/ok.md'])`
+   and `expect(texts.join('\n')).not.toContain('SECRET')`, not just the reason
+   field.
+2. **Mutation-check it**: break the guard (`if (false && …)`), run the one test,
+   and **quote the failure message** in the report. Then revert and
+   `grep -c 'false &&'` to prove you did. Three fixes in this build were checked
+   this way; each produced a failure that named the real vector
+   (`expected [ 'specs/sub/foo.md', 'specs/ok.md' ] to deeply equal [ 'specs/ok.md' ]`),
+   and one of them is the only reason a known-insufficient fix did not ship.
+
+## 2026-08-27 — `git diff --stat <file>` silently returns nothing for an untracked module, so the "did the fix touch this file" check is a no-op
+
+**Rubric:** What Doesn't Work
+**Symptom:** the review-loop step that spends a `git diff --stat <path>` to avoid
+paying for a re-review — a row whose file the fix never touched is
+`not-attempted`, not disputed — printed empty output for all five files of a
+just-completed fix iteration. Read naively that says "nothing was touched" and
+sends every row back.
+**Cause:** the whole new module (`server/src/modules/project-context/**`) was
+**untracked**, and nothing on the branch was committed, so `git diff` has no
+index entry to diff against and exits 0 with no output. Empty output is
+indistinguishable from "unchanged".
+**Fix:** never read an empty `git diff` as evidence of anything until you know
+the path is tracked. Check `git status --porcelain <path>` first — `??` means
+`git diff` will lie. For an untracked tree the working substitutes are a
+`grep -n` for the symbol or guard the fix was supposed to add, or an `mtime`
+comparison (`find <dir> -newermt "<time>"`). Both are what actually confirmed
+this iteration. The same trap applies to any `git diff`-based gate in a repo
+where a feature ships as new files on an uncommitted branch.
+
+## 2026-08-22 — omitting `max_tokens` makes OpenRouter 402 low-credit accounts before the call even runs
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** every review run fails with `402 This request requires more
+credits, or fewer max_tokens. You requested up to 65536 tokens, but can only
+afford N`, even though the actual completion would cost a fraction of a cent.
+**Cause:** `OpenRouterProvider.completeStructured` sent `max_tokens` only when
+`req.maxTokens` was set — and **no call site in the repo ever sets it**. With
+the field absent, OpenRouter reserves the model's FULL output window (65 536
+for deepseek-v4-flash) against the account balance as a pre-flight check, so
+any account holding less than that reservation is rejected outright.
+**Fix:** spans reviewer-core + server. The provider now always sends
+`max_tokens` (`reviewer-core/src/llm/openrouter.ts` — injected
+`defaultMaxTokens`, built-in default 8192; reviewer-core is pure, so the value
+is an option, never `env`). The server threads `LLM_MAX_OUTPUT_TOKENS`
+(default 8192) through `platform/config.ts` → `container.buildLlm`. Still
+seeing the 402 → the balance is below even 8192: lower
+`LLM_MAX_OUTPUT_TOKENS` in `server/.env` or top up. Reviews truncated → raise
+it. A request's own `maxTokens` always wins over the default.
+
+## 2026-08-21 — `mcp/` fronts the REST API on purpose; importing `@devdigest/shared` into it would chain it to the server tree
+
+**Rubric:** Codebase Patterns
+**Symptom:** none yet — latent. The temptation is real: `mcp/src/api.ts` hand-declares
+minimal projections (`AgentDto`, `ReviewRecord`, …) that visibly "duplicate"
+`server/src/vendor/shared/contracts/*`, and a cleanup that replaces them with
+`@devdigest/shared` imports would typecheck.
+**Cause:** `@devdigest/shared` resolves backwards into `server/src/vendor/shared/`
+via tsconfig aliases (see `reviewer-core/insights.md` 2026-08-05 — the L04
+extraction blocker). The new `mcp/` package (npm, standalone, stdio MCP server)
+sidesteps that prerequisite entirely by treating the REST API on :3001 as its
+contract and keeping its own lean type projections. Wiring shared in would make
+`mcp/` un-extractable and drag the server's zod pin (`^3.24.1`) into conflict
+with `@modelcontextprotocol/sdk`, whose floor is zod `^3.25` (it imports the
+`zod/v4` subpath, absent before 3.25) — `mcp/package.json` pins `^3.25.0` for
+that reason.
+**Fix:** keep `mcp/` REST-only. New tool needs a field? Extend the projection in
+`mcp/src/api.ts`, don't import shared. Two more facts that cost time here:
+per-run findings have **no endpoint** — join `GET /pulls/:id/reviews` on
+`ReviewRecord.run_id` against `GET /pulls/:id/runs`; and **seeded** reviews
+(`server/src/db/seed.ts`) carry `run_id: null`, so any run-filtered read
+returns empty on seed data — test per-run paths only against a live run.
+
 ## 2026-08-17 — `check-contracts.sh` guards ONE of the two client mirrors; the feature-model registry is the other
 
 **Rubric:** Codebase Patterns

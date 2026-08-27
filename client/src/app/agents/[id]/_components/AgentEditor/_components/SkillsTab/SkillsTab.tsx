@@ -28,10 +28,19 @@ import { moveItem, toLinkPayload, typeColor } from "./helpers";
 import { s } from "./styles";
 
 /**
- * A disabled-capable icon button. The kit's `IconBtn` has no `disabled` prop and
- * lives in `src/vendor/ui`, which is mirrored rather than authored here — so
- * rather than fork it, this row-local button keeps the disabled state real (the
- * element is genuinely disabled, not just dimmed) for the top and bottom rows.
+ * A disabled-capable icon button. The kit's `IconBtn` has no `disabled` prop, so
+ * rather than change a shared primitive for one caller, this row-local button
+ * keeps the disabled state real (the element is genuinely disabled, not just
+ * dimmed) for the top and bottom rows.
+ *
+ * NOTE, corrected: an earlier version of this comment claimed `src/vendor/ui` is
+ * "mirrored rather than authored here". That is true of `src/vendor/shared`,
+ * which is a one-directional copy of the server's contracts pinned by
+ * `scripts/check-contracts.sh` — but NOT of `src/vendor/ui`, which has no
+ * upstream anywhere in this repository. `client/AGENTS.md` calls it "the in-repo
+ * design system" and its own README asks you to update the showcase when you
+ * change a component. Editing the kit is therefore a decision about scope, not
+ * a forbidden edit to a mirror.
  */
 function ReorderButton({
   icon,

@@ -9,7 +9,7 @@ lesson roadmap. **Read that before designing anything; it is not repeated here.*
 | | |
 |---|---|
 | Runtime | Node ≥ 22 · TypeScript 5.7 · ESM everywhere |
-| Package managers | **pnpm 11** in `server/`, `client/` · **npm** in `reviewer-core/`, `e2e/` |
+| Package managers | **pnpm 11** in `server/`, `client/` · **npm** in `reviewer-core/`, `mcp/`, `e2e/` |
 | API | Fastify 5 · Zod 3 · `fastify-type-provider-zod` 4 · Pino |
 | DB | Postgres 16 + pgvector (Docker) · Drizzle ORM 0.38 · drizzle-kit 0.30 · postgres.js 3.4 |
 | Web | Next.js 15 (App Router) · React 19 · TanStack Query 5 · Tailwind 4 |
@@ -39,8 +39,11 @@ Ports: web **3000** · API **3001** · Postgres **5432**. Hermetic e2e: 3100/310
 server/         @devdigest/api — Fastify, Postgres, adapters, jobs        :3001
 client/         @devdigest/web — Next.js studio                          :3000
 reviewer-core/  @devdigest/reviewer-core — pure review engine, no I/O
+mcp/            @devdigest/mcp — MCP server (stdio), fronts the REST API
 e2e/            @devdigest/e2e — deterministic browser flows
 docs/           cross-cutting docs (agent-prompt authoring)
+specs/          SPEC-NN specs that cross more than one package
+specs/plans/    approved Implementation Plans, one per build
 scripts/        dev.sh, e2e.sh
 ```
 
@@ -65,12 +68,12 @@ entry; supersede it with a new one instead. Full procedure and the seven rubrics
 
 ## Non-default conventions
 
-- **Four standalone packages, NOT a pnpm workspace.** Each has its own
+- **Five standalone packages, NOT a pnpm workspace.** Each has its own
   `package.json` and lockfile. Cross-package code is shared as TypeScript
   **source** through tsconfig path aliases — there is no build or publish step
   for shared code. Never `pnpm add` one local package into another.
 - **Two package managers on purpose.** `server`/`client` use pnpm;
-  `reviewer-core`/`e2e` use npm (`package-lock.json`). Don't unify them without
+  `reviewer-core`/`mcp`/`e2e` use npm (`package-lock.json`). Don't unify them without
   reading `scripts/dev.sh:77-80`.
 - **`@devdigest/shared` is canonical at `server/src/vendor/shared/`.**
   `client/src/vendor/shared/` is a **hand-synced copy**. A contract change must
@@ -116,9 +119,32 @@ entry; supersede it with a new one instead. Full procedure and the seven rubrics
 | Purpose, architecture, quick start, lesson roadmap | [`README.md`](README.md) |
 | Testing & CI strategy, suite map | [`TESTING.md`](TESTING.md) |
 | Writing agent prompts, prompt slot order, model choice | [`docs/agent-prompts/`](docs/agent-prompts/README.md) |
+| Writing a feature spec (routing, template, EARS, statuses) | [`specs/README.md`](specs/README.md) — write one with the `spec-creator` agent |
+| Persisting an approved Implementation Plan (naming, status, amendments) | [`specs/plans/README.md`](specs/plans/README.md) |
 | Per-package rules | `server/`, `client/`, `reviewer-core/`, `e2e/` → `CLAUDE.md` |
 
-Each package also has `docs/` (explanations), `specs/` (intent for unbuilt work),
-and `insights.md` (accumulated gotchas). Cross-cutting gotchas — `scripts/`,
+A feature spec is routed by how many packages it changes: **more than one → the
+repo-root [`specs/`](specs/README.md)**, exactly one → that package's own
+`specs/` folder (`server/`, `client/`, `reviewer-core/`, `mcp/`). A shared Zod
+contract counts as cross-module — the canonical copy at
+`server/src/vendor/shared/` is mirrored into `client/`, so it is always two
+packages. `SPEC-NN` numbers are **globally unique across the repository**, and
+every spec is indexed once, in `specs/README.md`. `e2e/specs/` is not a spec
+folder: it holds `.flow.json` browser flows.
+
+Specs are written by the [`spec-creator`](.claude/agents/spec-creator.md) agent
+in two passes — questions and design findings first, the file once you have
+answered. Its write scope is enforced by a `PreToolUse` hook
+([`.claude/hooks/spec-creator-guard.py`](.claude/hooks/spec-creator-guard.py)),
+scoped by `agent_type` so no other agent is affected.
+
+The plan built from a spec is persisted next to it, in
+[`specs/plans/`](specs/plans/README.md). **The main session writes that file, no
+subagent does:** `implementation-planner` returns the plan as text and holds no
+write tool, you approve it, and only then does it land on disk — after which
+`implementer` and `plan-verifier` are handed the path rather than a paste.
+
+Each package also has `docs/` (explanations), `specs/` (its single-module specs,
+plus legacy intent for unbuilt work), and `insights.md` (accumulated gotchas). Cross-cutting gotchas — `scripts/`,
 CI, root configs, or a fix spanning two packages — go in the root
 [`insights.md`](insights.md). See **Insights** above for when to read and write.

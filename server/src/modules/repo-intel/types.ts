@@ -82,6 +82,33 @@ export interface BlastResult {
    * Present on the persistent (non-degraded) path; absent otherwise.
    */
   factsByFile?: Record<string, { endpoints: string[]; crons: string[] }>;
+  /**
+   * Changed-symbol names whose caller list was cut by MAX_CALLERS_PER_SYMBOL,
+   * so consumers can say "+N more" instead of presenting the cut as complete.
+   */
+  callersTruncatedFor?: string[];
+  degraded?: boolean;
+  reason?: DegradedReason;
+}
+
+/**
+ * One HTTP endpoint (or cron) reachable from a changed file through the
+ * reverse import graph, with the shortest discovered chain
+ * `changedFile → … → file` (≤ BFS_DEPTH hops).
+ */
+export interface EndpointPath {
+  /** "METHOD /path" from file_facts. */
+  endpoint: string;
+  /** The route file carrying the endpoint. */
+  file: string;
+  /** Import chain, starting at the changed file and ending at `file`. */
+  chain: string[];
+}
+
+export interface DependentsResult {
+  endpointPaths: EndpointPath[];
+  /** Every file reached by the reverse walk, with its BFS depth (1-based). */
+  dependents: Array<{ file: string; depth: number }>;
   degraded?: boolean;
   reason?: DegradedReason;
 }
@@ -145,6 +172,16 @@ export interface RepoIntel {
 
   // --- Reads --------------------------------------------------------------
   getBlastRadius(repoId: string, changedFiles: string[]): Promise<BlastResult>;
+  /**
+   * Reverse-import walk from `changedFiles` (who depends on them), capped at
+   * `maxDepth` levels (default BFS_DEPTH), joined to file_facts to surface the
+   * HTTP endpoints those dependents serve. Degrades, never throws.
+   */
+  getDependents(
+    repoId: string,
+    changedFiles: string[],
+    maxDepth?: number,
+  ): Promise<DependentsResult>;
   getRepoMap(repoId: string, tokenBudget?: number): Promise<RepoMapResult>;
   getFileRank(repoId: string, paths: string[]): Promise<FileRankRow[]>;
   getSymbolsInFiles(repoId: string, paths: string[]): Promise<SymbolRow[]>;

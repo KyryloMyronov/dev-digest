@@ -7,7 +7,7 @@ import type {
   UnifiedDiff,
 } from '@devdigest/shared';
 import { Review as ReviewSchema } from '@devdigest/shared';
-import { assemblePrompt, type PromptSectionMetric } from '../prompt.js';
+import { assemblePrompt, type PromptSectionMetric, type SpecInput } from '../prompt.js';
 import { groundFindings, groundingSummary } from '../grounding.js';
 import { reduceReviews, scoreFromFindings, sliceDiff } from './reduce.js';
 
@@ -56,8 +56,12 @@ export interface ReviewInput {
   skills?: string[];
   /** Curated memory items. */
   memory?: string[];
-  /** Project-context spec chunks (untrusted; delimiter-wrapped downstream). */
-  specs?: string[];
+  /**
+   * Project-context documents (untrusted; delimiter-wrapped downstream), in
+   * prompt order. Prefer the `{ path, text }` form: the path becomes the
+   * `<untrusted source="…">` label, so the prompt and the trace agree (AC-60).
+   */
+  specs?: SpecInput[];
   /**
    * Optional callers-of-changed-symbols digest (T1.3). Untrusted; rendered
    * before the diff section. Empty/undefined → section omitted.

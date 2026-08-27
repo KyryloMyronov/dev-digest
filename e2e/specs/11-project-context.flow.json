@@ -1,0 +1,189 @@
+{
+  "name": "Project Context navigation and the run trace's project-context block",
+  "description": "Covers SPEC-01's two browser-only claims, ONE OF THEM VIA ITS DOCUMENTED FALLBACK. AC-57 (and the route half of AC-58): the sidebar's Project Context entry lands on the active repository's /repos/:repoId/context route. FALLBACK TAKEN (a): the `g x` chord is NOT driven here. `agent-browser` 0.35.1 does expose a key primitive (`press <key>`, retiring the plan's OQ-C), and the chord itself was verified by hand to fire and land on /repos/<id>/context — but `press` holds the key down, so one invocation dispatches ~180 auto-repeat keydowns and `press g` + `press x` produced ~90 interleaved chord activations, i.e. ~90 duplicate router.push calls that hammered the dev server and left the URL still settling past the 25s step timeout. There is no repeat-count flag on `press`. So the flow asserts the sidebar row instead, exactly as the plan's named fallback permits; AC-58's primary and guaranteed proof stays `client/src/components/app-shell/hooks/useGlobalShortcuts.test.ts`, which dispatches the two keydowns in jsdom and asserts router.push. AC-54 is driven through the block's OWN expand control (`find text ... click` on a role-less div — the plan's first-choice route, NOT its fallback), which is the strict reading of the criterion; `TraceBody.test.tsx` covers the same control hermetically. The Project Context page deliberately asserts the CLONING state, not a document list: the demo repo has clone_path: null (D-Q6g), so AC-1/AC-8/AC-11 have no seeded route and that is an accepted gap, not a bug. The phrase waited on ('Every public endpoint must document its rate limit') is SEED_CONTEXT_PHRASE in server/src/db/seed-context.ts — change that seed and change this flow with it. Read-only: it opens and clicks; it attaches nothing and triggers no model call.",
+  "steps": [
+    {
+      "cmd": [
+        "open",
+        "{BASE}/"
+      ],
+      "label": "load the app root"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--url",
+        "/pulls"
+      ],
+      "label": "land on the active repo's PR list"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--load",
+        "networkidle"
+      ],
+      "label": "the shell and its repo list settle"
+    },
+    {
+      "cmd": [
+        "find",
+        "text",
+        "Project Context",
+        "click"
+      ],
+      "label": "AC-57: the sidebar's WORKSPACE entry (fallback (a) for the g x chord — see description)"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--url",
+        "/context"
+      ],
+      "label": "AC-57: landed on the active repository's Project Context route"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--load",
+        "networkidle"
+      ],
+      "label": "GET /repos/:id/context settles"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "This repository is still cloning"
+      ],
+      "label": "AC-5: the seeded demo repo has no clone, so the cloning state is the correct render (D-Q6g)"
+    },
+    {
+      "cmd": [
+        "open",
+        "{BASE}/"
+      ],
+      "label": "back to the PR list for the trace half"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--url",
+        "/pulls"
+      ],
+      "label": "PR list reached"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--load",
+        "networkidle"
+      ],
+      "label": "PR list data settles"
+    },
+    {
+      "cmd": [
+        "find",
+        "text",
+        "Add rate limiting to public API endpoints",
+        "click"
+      ],
+      "label": "open PR #482"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--url",
+        "/pulls/482"
+      ],
+      "label": "PR detail route"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--load",
+        "networkidle"
+      ],
+      "label": "PR detail data settles"
+    },
+    {
+      "cmd": [
+        "find",
+        "role",
+        "button",
+        "click",
+        "--name",
+        "Agent runs"
+      ],
+      "label": "switch to the Agent runs tab, where the timeline lives"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "Security Reviewer"
+      ],
+      "label": "AC-56: the seeded agent run renders in the timeline — it exists only because of seed-context.ts"
+    },
+    {
+      "cmd": [
+        "find",
+        "role",
+        "button",
+        "click",
+        "--name",
+        "Open run trace & logs"
+      ],
+      "label": "open the run trace drawer (sets ?trace=)"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "Prompt assembly"
+      ],
+      "label": "the trace tab rendered its sections"
+    },
+    {
+      "cmd": [
+        "find",
+        "text",
+        "Prompt assembly",
+        "click"
+      ],
+      "label": "expand the collapsed Prompt assembly section"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "Project context — attached specs (untrusted)"
+      ],
+      "label": "AC-52/AC-53: the block renders under its untrusted label"
+    },
+    {
+      "cmd": [
+        "find",
+        "text",
+        "Project context — attached specs (untrusted)",
+        "click"
+      ],
+      "label": "AC-54: activate the block's own expand control"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "Every public endpoint must document its rate limit"
+      ],
+      "label": "AC-54: the full injected text is on the page"
+    },
+    {
+      "cmd": [
+        "open",
+        "{BASE}/"
+      ],
+      "label": "leave the app on a neutral route for the next flow"
+    }
+  ]
+}

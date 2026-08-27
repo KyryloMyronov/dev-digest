@@ -31,6 +31,8 @@ import { PullsRepository } from '../modules/pulls/repository.js';
 import { resolveFeatureModel } from '../modules/settings/feature-models.js';
 import type { RepoIntel } from '../modules/repo-intel/types.js';
 import { RepoIntelService } from '../modules/repo-intel/service.js';
+import type { ProjectContext } from '../modules/project-context/types.js';
+import { ProjectContextService } from '../modules/project-context/service.js';
 import { type DepGraph, DepCruiseGraph } from '../adapters/depgraph/index.js';
 import { type Tokenizer, TiktokenTokenizer } from '../adapters/tokenizer/index.js';
 
@@ -52,6 +54,9 @@ export interface ContainerOverrides {
   llm?: Partial<Record<'openai' | 'anthropic' | 'openrouter', LLMProvider>>;
   /** repo-intel facade (T1.1+) — tests inject mock RepoIntel implementations. */
   repoIntel?: RepoIntel;
+  /** project-context facade (SPEC-01) — tests inject a throwing/hanging one to
+      prove AC-47 and AC-48, which is only possible if nothing constructs it. */
+  projectContext?: ProjectContext;
   /** repo-intel T3 adapters — only the indexer pipeline reads these. */
   depgraph?: DepGraph;
   tokenizer?: Tokenizer;
@@ -78,6 +83,7 @@ export class Container {
   private _reviewRepo?: ReviewRepository;
   private _pullsRepo?: PullsRepository;
   private _repoIntel?: RepoIntel;
+  private _projectContext?: ProjectContext;
   private _depgraph?: DepGraph;
   private _tokenizer?: Tokenizer;
   private _modelCatalog?: ModelCatalog;
@@ -139,6 +145,20 @@ export class Container {
     if (this.overrides.repoIntel) return this.overrides.repoIntel;
     this._repoIntel ??= new RepoIntelService(this);
     return this._repoIntel;
+  }
+
+  /**
+   * The project-context facade (SPEC-01). `run-executor` codes against the
+   * interface in `modules/project-context/types.js`; the composition root is the
+   * only place allowed to know the concrete service.
+   *
+   * Same posture as `repoIntel`: it degrades instead of throwing, so an empty
+   * `ResolvedContext` means "no documents", never an error.
+   */
+  get projectContext(): ProjectContext {
+    if (this.overrides.projectContext) return this.overrides.projectContext;
+    this._projectContext ??= new ProjectContextService(this);
+    return this._projectContext;
   }
 
   /** Import-graph builder (dependency-cruiser). T3 indexer pipeline only. */
@@ -210,6 +230,7 @@ export class Container {
       return new OpenRouterProvider(key, {
         estimateCost: (model, tokensIn, tokensOut) =>
           this.modelCatalog.estimate(model, tokensIn, tokensOut),
+        defaultMaxTokens: this.config.llmMaxOutputTokens,
       });
     }
     const key = await this.secrets.get('ANTHROPIC_API_KEY');

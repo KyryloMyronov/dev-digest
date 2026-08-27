@@ -14,6 +14,106 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-27 — a shared component that resolves its own i18n namespace crashes a screen whose catalogue lacks it; and `?? []` cannot defend a list
+
+**Rubric:** What Doesn't Work
+**Symptom:** adding a context-attachment field to `SkillEditorModal` broke a
+**pre-existing** test, `SkillsListView.test.tsx > edits an existing skill`, with
+`Unable to find role="dialog"` — an assertion about nothing the change touched.
+Two errors preceded it in stderr:
+
+```
+IntlError: MISSING_MESSAGE: Could not resolve `context` in messages for locale `en`.
+TypeError: attached.map is not a function
+```
+
+**Cause:** two independent mistakes in one component.
+(1) It called `useTranslations("context")`, but its strings belong to the owning
+screen's catalogue (`skills.json`), and this repo's tests mount
+`NextIntlClientProvider` with only the namespaces that screen needs
+(`messages={{ skills, shell }}`). A namespace the screen does not carry throws.
+(2) It did `attachments.data ?? []` and then `.map()`. The test's `fetch` mock did
+not serve the new endpoint, so `data` was a **truthy non-array** — and `??` only
+catches nullish, never a wrong *shape*. The throw unmounted the whole modal,
+which is why the failure surfaced as a missing dialog rather than anything about
+context.
+**Fix:** keep attach vocabulary in the **owning screen's** catalogue
+(`agents.json` → `agents.context.*`, `skills.json` → `skills.context.*`, read as
+`useTranslations("skills")` + `t("context.…")`), and give a genuinely shared
+component **label props** instead of a `useTranslations` call of its own —
+otherwise promoting a component drags one screen's catalogue into another. Guard
+list shape with `Array.isArray(value) ? value : []`, not `??`. And when new
+production code adds queries to an existing screen, that screen's **pre-existing
+test fixture is yours to update** — the crash lands in a test that looks
+unrelated. A sibling trap: `AgentEditor.test.tsx` passed only because it renders
+`tab="config"`, so the new tab never mounted; it needed a test that mounts it.
+
+## 2026-08-27 — with `css: false`, bind a computed-contrast test to the implementation by reading the inline `style.color`
+
+**Rubric:** What Works
+**Symptom:** WCAG contrast is a real requirement here (NFR-9 in SPEC-01 asks for
+a computed ratio ≥ 4.5:1 in both themes), but `getComputedStyle(el).outline` and
+every CSS-variable lookup come back empty in this suite, so a test that asks the
+DOM for a resolved colour proves nothing regardless of correctness.
+**Cause:** `client/vitest.config.ts` sets `css: false`, so no stylesheet loads
+and no `var(--x)` ever resolves. jsdom has no CSS engine and no `:focus-visible`.
+**Fix:** compute the ratio from the token table in the test (copy the hex values
+from `src/vendor/ui/styles.css`, real relative-luminance maths) **and** bind it to
+the component by asserting the token it actually paints — `expect(el.style.color)
+.toBe("var(--crit)")`, read off the rendered inline style, which jsdom does
+preserve verbatim. Without that bridge the arithmetic drifts from the component
+silently. `DocRow.test.tsx:42-129` and `context-tokens/TokenTotal.test.tsx` are
+the two worked examples; the helpers are byte-identical between them on purpose.
+Two costs to accept and state: the token table is a **copy**, so changing
+`styles.css` leaves the test measuring the old value, and the *surfaces* a
+component renders against are a static read of its call sites, asserted nowhere.
+Also worth pinning the tightest pair with an upper bound — `--crit` on
+`--bg-elevated` (dark) measures **4.5287:1**, so one step of drift breaks it, and
+a bare `toBeGreaterThanOrEqual(4.5)` would not say so.
+
+## 2026-08-18 — vitest's jsdom has NO `window.localStorage`; code guarded by try/catch silently no-ops in tests
+
+**Rubric:** Tool & Library Notes
+**Symptom:** a per-PR persistence helper (`DiffTab/viewMode.ts`) worked in the
+browser but its test failed with `Cannot read properties of undefined (reading
+'clear')` on `window.localStorage.clear()` — and the write helper itself threw
+nothing, because its defensive try/catch swallowed the TypeError, so the
+round-trip just returned `null` as if nothing had been stored.
+**Cause:** the jsdom version in this repo (25.x) under vitest exposes no
+`localStorage` at all — `typeof window.localStorage === "undefined"` even
+though `window.location.href` is a proper `http://localhost:3000/`. It is not
+an origin problem; the API is simply absent in this environment.
+**Fix:** `src/test/setup.ts` now installs a minimal in-memory `Storage` stub
+(guarded, same pattern as the `ResizeObserver` stub above it) — state lives per
+test file, tests `window.localStorage.clear()` in `afterEach`. Two lessons:
+(1) don't debug localStorage tests as key-mismatch bugs, check
+`typeof window.localStorage` first; (2) a try/catch around storage access hides
+this completely — the code "passes" while persisting nothing.
+
+## 2026-08-18 — `SeverityBadge compact` renders colour and an icon with NO label, and the label it does render is mixed case
+
+**Rubric:** Tool & Library Notes
+**Symptom:** two failures in a row from one badge. First,
+`screen.getByText("CRITICAL")` found nothing after adding
+`<SeverityBadge severity={severity} count={n} compact />` to the diff's file
+header — the badge was on screen and visibly red. Removing `compact` still
+failed, on the same assertion. The component renders; the text does not exist.
+**Cause:** two separate facts about `src/vendor/ui/primitives/Badge.tsx`.
+`compact` maps to `{compact ? null : s.label}` (`Badge.tsx:80`), so the compact
+variant drops the label entirely and leaves colour + icon carrying the whole
+meaning — which the file's own comment ("always icon + label (WCAG AA: never
+color alone)", `:51`) says not to do. And the label itself is
+`SEV[severity].label` = **`"Critical"` / `"Warning"` / `"Suggestion"`**
+(`primitives/tokens.ts:10-13`); the all-caps look is `textTransform: uppercase`,
+a CSS effect that never reaches the DOM. Same trap in `CAT` (lowercase labels).
+**Fix:** don't pass `compact` when the badge is the only thing naming the
+severity — it is for a dense row where a neighbouring element already says it.
+In RTL, assert on the mixed-case label (`getByText("Critical")`), and read
+`tokens.ts` rather than the rendered screenshot for any kit label. The general
+rule: a `textTransform`/`letterSpacing` style means the visible string and the
+DOM string differ, so every kit component styled that way needs its label
+checked at the source before it goes into an assertion.
+
 ## 2026-08-17 — the `keys.ts` header comment teaches a `reviewKeys.all` that does not exist
 
 **Rubric:** What Doesn't Work

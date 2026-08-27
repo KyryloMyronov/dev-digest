@@ -136,7 +136,10 @@
     "cancel": "Cancel",
     "save": "Save skill",
     "saving": "Saving…",
-    "saveFailed": "Could not save the skill."
+    "saveFailed": "Could not save the skill.",
+    "contextLabel": "Project context",
+    "contextHint": "Documents from this repository that every agent using this skill will inject. They are fenced as untrusted data — unlike the skill body above, which enters the prompt as instructions.",
+    "contextAfterSave": "Save the skill first — documents are attached to a saved skill."
   },
   "import": {
     "title": "Import a skill",
@@ -161,5 +164,24 @@
     "footerNote": "Nothing is saved until you confirm in the editor.",
     "cancel": "Cancel",
     "accept": "Review and save…"
+  },
+  "context": {
+    "filterLabel": "Filter documents by path",
+    "filterPlaceholder": "Filter by path…",
+    "attachedTitle": "Attached",
+    "availableTitle": "Available in this repository",
+    "attach": "Attach {path}",
+    "detach": "Detach {path}",
+    "unresolved": "not found in this repository",
+    "noneAttached": "No documents attached yet.",
+    "noMatches": "No documents match “{q}”.",
+    "tokens": "{count} tok",
+    "tokensPending": "counting…",
+    "total": "{tokens} of {budget} tokens",
+    "overBudget": "— over the run budget; the run will drop the overflow.",
+    "pendingCount": "({count} not counted yet)",
+    "emptyBody": "This repository has no Markdown under specs/, docs/ or insights/ — or it is still cloning. Open the Project Context page to see what DevDigest found.",
+    "error": "Couldn’t save that change: {message}",
+    "hint": "Documents attached to this skill are inherited by every agent that uses it, after the agent's own attachments."
   }
 }

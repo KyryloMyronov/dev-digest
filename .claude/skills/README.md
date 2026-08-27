@@ -28,6 +28,12 @@ upstream and hash-locked by [`skills-lock.json`](../../skills-lock.json); local
 edits to them get overwritten on sync. Those five are authored here and are not
 locked.
 
+`spec-creator/` is **not a skill** — it is a subagent
+([`../agents/spec-creator.md`](../agents/spec-creator.md)). The folder survives
+without a `SKILL.md` because the agent reads its `references/` (the spec
+template, the EARS guide, the design-review checklist) on demand; see
+[`spec-creator/README.md`](spec-creator/README.md).
+
 ### The three API skills
 
 All three are worth running before a PR; they ask different questions.

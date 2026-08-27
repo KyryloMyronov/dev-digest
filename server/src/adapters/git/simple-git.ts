@@ -1,5 +1,5 @@
 import { simpleGit, type SimpleGit } from 'simple-git';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { mkdir, readFile, access, rm } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import type {
@@ -10,6 +10,7 @@ import type {
   BlameLine,
   GitCommit,
 } from '@devdigest/shared';
+import { ValidationError } from '../../platform/errors.js';
 import { parseUnifiedDiff } from './diff-parser.js';
 
 /**
@@ -126,8 +127,47 @@ export class SimpleGitClient implements GitClient {
     }));
   }
 
+  /**
+   * Read one file out of a repo's clone, asserting containment first
+   * (SPEC-01 AC-61 / AC-62).
+   *
+   * `join()` performs no containment check, so a `path` of `../../../.ssh/id_rsa`
+   * would resolve outside the clone. That was latent while every path reaching
+   * here was produced by code; SPEC-01's content route
+   * (`GET /repos/:id/context/doc?path=…`) and its persisted attachment paths
+   * make it user-controlled, and the bytes are then rendered in the studio and
+   * placed in a prompt — a read primitive with an exfiltration path attached.
+   *
+   * This is the choke point every caller already passes through, which is why
+   * the guard lives here rather than in the calling module: one edit closes the
+   * run-start path and the request-parameter path at once.
+   *
+   * Deliberately NOT applied to `blame`/`log` in the same edit — they take
+   * code-produced paths, and widening this would widen its blast radius.
+   */
   async readFile(repo: RepoRef, path: string): Promise<string> {
-    return readFile(join(this.clonePathFor(repo), path), 'utf8');
+    return readFile(this.resolveInClone(repo, path), 'utf8');
+  }
+
+  /**
+   * Resolve `relPath` against the repo's clone root and assert it stayed
+   * inside. Throws `ValidationError` (→ 422, code `validation_error`, via the
+   * single handler in `app.ts`) BEFORE any fs call, so an escaping path
+   * performs no read at all (AC-62).
+   *
+   * A bare `startsWith(root)` is NOT sufficient: `/clones/acme/api-evil`
+   * starts with `/clones/acme/api`. Containment means the resolved path equals
+   * the root, or begins with the root plus a path separator.
+   */
+  private resolveInClone(repo: RepoRef, relPath: string): string {
+    const root = resolve(this.clonePathFor(repo));
+    const full = resolve(join(root, relPath));
+    if (full !== root && !full.startsWith(root + sep)) {
+      throw new ValidationError('Path escapes the repository clone directory', {
+        path: relPath,
+      });
+    }
+    return full;
   }
 }
 

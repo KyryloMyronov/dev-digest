@@ -3,17 +3,21 @@
 import React, { useCallback } from "react";
 import { Icon, Avatar, Badge, Button, Tabs } from "@devdigest/ui";
 import { RunReviewDropdown } from "../RunReviewDropdown";
+import { FindingsCounters } from "../../../_components/FindingsCounters";
 import { s } from "./styles";
-import type { PrDetail } from "@/lib/types";
+import type { PrDetail, PrFindingCounts, Severity } from "@/lib/types";
 
 interface PrDetailHeaderProps {
   pr: PrDetail;
   prId: string | null;
   tab: string;
   findingsCount: number;
+  /** Per-severity totals across every review; null renders as all-zero. */
+  findingCounts: PrFindingCounts | null;
   /** github.com PR URL; null when the repo's full_name isn't known yet. */
   githubUrl?: string | null;
   onSetTab: (tab: string) => void;
+  onOpenFindings: (severity: Severity) => void;
   onRunStart: () => void;
   onRunsStarted: () => void;
 }
@@ -23,8 +27,10 @@ export function PrDetailHeader({
   prId,
   tab,
   findingsCount,
+  findingCounts,
   githubUrl,
   onSetTab,
+  onOpenFindings,
   onRunStart,
   onRunsStarted,
 }: PrDetailHeaderProps) {
@@ -75,6 +81,7 @@ export function PrDetailHeader({
             <Badge dot bg="transparent" color={statusColor}>
               {pr.status}
             </Badge>
+            <FindingsCounters counts={findingCounts} onOpen={onOpenFindings} />
           </div>
         </div>
         <div style={s.actions}>

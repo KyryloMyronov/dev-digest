@@ -9,7 +9,9 @@
     "replyToAuthor": "Reply to author",
     "replyPlaceholder": "Reply to the author about this finding…",
     "sendReply": "Send reply",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "viewInDiff": "View in diff",
+    "notInDiff": "This finding points at a line that isn't part of the diff"
   },
   "trifecta": {
     "lethal": "LETHAL TRIFECTA — ALL 3 PRESENT",
@@ -52,13 +54,23 @@
   },
   "smartDiff": {
     "coreLabel": "Core",
+    "coreHint": "Business logic — read this closely",
     "wiringLabel": "Wiring",
+    "wiringHint": "Configs, barrels and docs — skim",
     "boilerplateLabel": "Boilerplate",
+    "boilerplateHint": "Lock files, build output, snapshots — generated",
     "largeTitle": "This PR is large ({lines} changed lines)",
     "largeBody": "Consider splitting it into smaller, focused PRs for easier review:",
     "filesCount": "{count} files",
     "findingLines": "{count} finding-lines",
-    "groupedByRole": "Smart Diff · grouped by role"
+    "groupedByRole": "Smart Diff · grouped by role",
+    "standardMode": "Standard",
+    "smartMode": "Smart",
+    "findingsBadge": "{count} findings",
+    "findingsPending": "findings…",
+    "findingsPendingHint": "Findings are still loading — 0 would be a real count",
+    "findingsFailed": "findings unavailable",
+    "findingsFailedHint": "The reviews couldn't be loaded, so the findings count is unknown"
   },
   "list": {
     "breadcrumb": "Pull Requests",

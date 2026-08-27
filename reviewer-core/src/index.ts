@@ -19,6 +19,10 @@ export {
   type AssembledPrompt,
   type AssembleOptions,
   type PromptSectionMetric,
+  // SPEC-01 — the tagged project-context document, so a caller can label each
+  // fenced block with the document's path (AC-60).
+  type SpecDoc,
+  type SpecInput,
 } from './prompt.js';
 
 // Citation grounding — the mandatory mechanical gate for diff findings.

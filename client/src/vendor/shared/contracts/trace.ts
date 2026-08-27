@@ -86,7 +86,28 @@ export const RunTrace = z.object({
   tool_calls: z.array(ToolCall),
   raw_output: z.string(),
   memory_pulled: z.array(MemoryPulled),
+  /** Repository-relative paths of the project-context documents that DID reach
+      the prompt, in prompt order (AC-51). Its meaning is unchanged by
+      `specs_skipped` below. */
   specs_read: z.array(z.string()),
+  /**
+   * The documents that were resolved but did NOT reach the prompt, with why
+   * (D-Q5): `unread` (the read failed), `oversize` (over the per-document byte
+   * cap) or `budget` (the token budget was already full).
+   *
+   * `.nullish()` is what keeps every HISTORICAL trace parsing: `run_traces.trace`
+   * is unvalidated `jsonb` and `getRunTrace` type-asserts rather than parses, so
+   * a document written before this field existed simply lacks the key. A failed
+   * or cancelled run sets it to `null` — it legitimately read nothing.
+   */
+  specs_skipped: z
+    .array(
+      z.object({
+        path: z.string(),
+        reason: z.enum(['unread', 'oversize', 'budget']),
+      }),
+    )
+    .nullish(),
   log: z.array(RunLogLine),
 });
 export type RunTrace = z.infer<typeof RunTrace>;
