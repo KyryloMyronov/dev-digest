@@ -107,3 +107,4 @@ Review findings are a different thing and do **not** belong here. An
 | Plan | Spec | Status | Execution |
 |---|---|---|---|
 | [SPEC-01-project-context.plan.md](SPEC-01-project-context.plan.md) | [SPEC-01](../SPEC-01-project-context.md) | `delivered` | `single-agent` |
+| [SPEC-02-pr-brief.plan.md](SPEC-02-pr-brief.plan.md) | [SPEC-02](../SPEC-02-pr-brief.md) | `approved` | `single-agent` |

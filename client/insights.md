@@ -14,6 +14,45 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-28 — `aria-label` beats `title`, so an RTL test asserting `toHaveAttribute("title", …)` cannot fail on a broken accessible name
+
+**Rubric:** What Doesn't Work
+**Symptom:** `BriefCard`'s location control shipped with the raw `file:line` in
+`title` and a fixed instruction string in `aria-label`, so its accessible name
+was "Open this location in the Files changed tab" — the untruncated path never
+reached it. SPEC-02's AC-45 requires the opposite. The comment directly above the
+code asserted it was correct. **The test passed**, and was named
+`"…keeps the full value as the accessible name"`.
+**Cause:** two compounding mistakes. (1) In the accessible-name computation
+`aria-labelledby` > `aria-label` > native label > `title`, so setting both means
+`title` is *dead* for naming — it survives only as a mouse-hover tooltip.
+(2) The test asserted `expect(control).toHaveAttribute("title", full)` and
+located the element with `getByRole("button", { name: /Open this location/ })` —
+querying **by** the generic name it should have been rejecting. It therefore
+could not fail on this defect in any code state.
+**Fix:** put the value in `aria-label`; assert through the accessibility tree,
+never through `title`. Two adjacent sites in the same file were already right
+(`BriefCard.tsx` risk title and focus reason both use
+`aria-label={<raw value>}`), which is exactly why the odd one out survived review.
+
+```tsx
+aria-label={jumpLabel(location)}   // "<path>:<line> — Open this location…"
+title={location}                   // hover only; NOT the accessible name
+```
+
+```ts
+// asserts the real thing, and provably fails against the broken version
+screen.getByRole("button", { name: new RegExp(escapeRegex(`${LONG_PATH}:12`)) });
+expect(control).toHaveAccessibleName(`${LONG_PATH}:12 — Open this location…`);
+```
+
+**Generalise this.** Before trusting any test named for an accessibility
+criterion, ask what it would take for it to fail. If it queries by the same
+attribute it asserts, or asserts a DOM attribute where the criterion says
+"accessible name", it is decorative. A name may carry the value **plus** an
+action — that still satisfies "expose the untruncated value" and reads better to
+a screen-reader user than a bare path.
+
 ## 2026-08-27 — a shared component that resolves its own i18n namespace crashes a screen whose catalogue lacks it; and `?? []` cannot defend a list
 
 **Rubric:** What Doesn't Work

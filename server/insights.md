@@ -14,6 +14,52 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-28 — a top-level `.nullable()` response schema DOES serialise `null` — you do not need an envelope for "not computed yet"
+
+**Rubric:** What Works
+**Symptom:** none — this closes a risk that was carried as an open question
+through a whole spec and plan. SPEC-02 needed `GET /pulls/:id/brief` to answer
+"no brief has been derived" and nobody knew whether
+`response: { 200: PrBriefRecord.nullable() }` would survive
+`fastify-type-provider-zod`'s serializer, or whether the payload had to be
+wrapped as `{ brief: … | null }` to be safe.
+**Cause:** unfalsified caution. The 2026-08-2x entry below established that
+declared `response:` schemas work at all (the serializer half of
+`app.ts:64-65` was wired from the start and simply unused), but only for
+object-typed contracts. A **top-level** nullable was untested here.
+**Fix:** it works. `modules/brief/routes.ts` declares
+`response: { 200: PrBriefRecord.nullable() }` and `app.inject()` on a PR with no
+brief returns **HTTP 200 with the body literally `null`**
+(`test/brief-routes.test.ts`). No envelope, no `204`, no sentinel object.
+Prefer this over inventing a wrapper the client then has to unwrap — a nullable
+record is the honest shape for "this may not exist yet", and the client's
+`.nullish()` handling already copes.
+
+## 2026-08-28 — `@fastify/rate-limit` is inert under `NODE_ENV=test`, so a per-route `config.rateLimit` needs a non-standard app build to test at all
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** a route declares `config: { rateLimit: { max: 5, timeWindow: '1 minute' } }`
+and a test firing six requests at it asserts a `429` — which never arrives. Every
+request returns `202`. The route looks broken; it is not. Reading the route,
+the plugin registration and the config all show correct code, which is what makes
+this expensive.
+**Cause:** `server/AGENTS.md` documents the *fact* — "rate limiting is disabled
+under `NODE_ENV=test` so integration suites can hammer `inject()`" — but not its
+consequence: under the standard test app build the plugin is never registered, so
+a per-route `config.rateLimit` is dead configuration and **no test can observe
+it**. An acceptance criterion asserting a 429 is unverifiable by default.
+**Fix:** build the app once, in its own isolated `describe`, with the env flipped:
+
+```ts
+const app = await buildApp(loadConfig({ ...process.env, NODE_ENV: 'development' }));
+// now 5×202, then the 6th → 429
+```
+
+Keep it in a separate `describe` with its own `buildApp`/close so the rest of the
+suite keeps the fast, unthrottled app. `test/brief-routes.test.ts` is the worked
+example (SPEC-02 AC-9). If you write a rate-limit AC, write this build with it —
+otherwise the criterion ships green and unproven.
+
 ## 2026-08-27 — two Docker runtimes installed: `docker context` says Colima, but the socket that reaches host :5432 is Rancher Desktop's
 
 **Rubric:** Recurring Errors & Fixes

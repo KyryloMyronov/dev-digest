@@ -84,10 +84,32 @@ describe('AI contracts parse fixtures', () => {
       }),
     ).not.toThrow();
     expect(() =>
+      // SPEC-02 retyped `Risk`: `severity` moved from RiskSeverity
+      // (high|medium|low) to the product's Severity, and the shape gained the
+      // citation fields `file` / `start_line` / `end_line`. `file_refs` is now
+      // `.nullish()` legacy. The fixture follows the contract; nothing is
+      // loosened here.
       Risks.parse({
-        risks: [{ kind: 'security', title: 't', explanation: 'e', severity: 'high', file_refs: [] }],
+        risks: [
+          {
+            kind: 'security',
+            title: 't',
+            explanation: 'e',
+            severity: 'CRITICAL',
+            file: 'src/a.ts',
+            start_line: 10,
+            end_line: 12,
+            file_refs: [],
+          },
+        ],
       }),
     ).not.toThrow();
+    // The citation fields are REQUIRED — a risk with no line range must not parse.
+    expect(() =>
+      Risks.parse({
+        risks: [{ kind: 'security', title: 't', explanation: 'e', severity: 'CRITICAL' }],
+      }),
+    ).toThrow();
     expect(() =>
       PrHistory.parse({
         history: [

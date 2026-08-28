@@ -306,4 +306,40 @@ describe("DiffTab · reveal (click a finding → jump to the code)", () => {
     expect(screen.getByText("pnpm-lock.yaml")).toBeInTheDocument();
     await waitFor(() => expect(scrollSpy).toHaveBeenCalled());
   });
+
+  // SPEC-02 AC-50 / D-7 — REGRESSION ASSERTIONS for a deliberate change to
+  // SHIPPED behaviour: a reveal now moves KEYBOARD FOCUS to the revealed file
+  // card, for every caller. Written here, in the existing suite, rather than
+  // only in BriefCard.test.tsx, so the change is visible in a diff instead of
+  // being discovered by a user.
+  it("moves keyboard focus to the revealed file card", async () => {
+    smartDiff.data = GROUPED;
+    renderTab(REVIEWS, { reveal: { path: "src/a.ts", line: 2, token: 1 } });
+
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalled());
+    await waitFor(() => {
+      const focused = document.activeElement as HTMLElement;
+      expect(focused).not.toBe(document.body);
+      // The card root is programmatically focusable but never a tab stop.
+      expect(focused.getAttribute("tabindex")).toBe("-1");
+      expect(focused.textContent).toContain("src/a.ts");
+    });
+  });
+
+  it("focuses with preventScroll, so the explicit scrollIntoView still owns the scroll position", async () => {
+    smartDiff.data = GROUPED;
+    const focusSpy = vi.spyOn(window.HTMLElement.prototype, "focus");
+    try {
+      renderTab(REVIEWS, { reveal: { path: "src/a.ts", line: 2, token: 1 } });
+      await waitFor(() => expect(focusSpy).toHaveBeenCalled());
+      // Without `preventScroll` the browser's own focus scroll fights the
+      // smooth `scrollIntoView({ block: "center" })` fired immediately before.
+      expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+      // The scroll target is still the LINE, not the focused card.
+      const target = scrollSpy.mock.contexts.at(-1) as HTMLElement;
+      expect(target.getAttribute("data-new-line")).toBe("2");
+    } finally {
+      focusSpy.mockRestore();
+    }
+  });
 });

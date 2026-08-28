@@ -162,5 +162,31 @@
       "security": "Security",
       "other": "Other"
     }
+  },
+  "brief": {
+    "title": "Risk brief",
+    "derive": "Derive brief",
+    "rederive": "Re-derive",
+    "emptyTitle": "No brief derived yet",
+    "emptyBody": "Derive a brief to see why this change exists, what is risky about it, and where to start reading.",
+    "errorTitle": "Could not load the risk brief",
+    "stale": "Stale — the head moved",
+    "whyLabel": "Why this change",
+    "whyEmpty": "No motivation was derived for this pull request.",
+    "risksLabel": "Risk areas",
+    "risksEmpty": "No risks were found in this diff.",
+    "risksAllDropped": "Every stated risk cited code that is not in this diff, so none are shown ({dropped} discarded).",
+    "showingRisks": "Showing {shown} of {total} risks.",
+    "focusLabel": "Review focus",
+    "focusEmpty": "No review focus was derived for this pull request.",
+    "notInDiff": "This location is not in the diff the studio loaded.",
+    "jump": "{location} — Open this location in the Files changed tab",
+    "cost": "Cost {cost}",
+    "costUnknown": "n/a",
+    "tokens": "{in} in / {out} out tokens",
+    "omitted": "{count} changed file(s) did not fit the prompt",
+    "statusDeriving": "Deriving the risk brief…",
+    "statusReady": "The risk brief is ready.",
+    "statusTimedOut": "The derivation did not finish in time. Try again."
   }
 }

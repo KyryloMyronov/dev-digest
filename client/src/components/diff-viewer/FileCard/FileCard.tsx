@@ -71,6 +71,15 @@ export function FileCard({
       const row =
         line != null ? rootRef.current?.querySelector(`[data-new-line="${line}"]`) : null;
       (row ?? rootRef.current)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      // SPEC-02 AC-50 — reveal now moves keyboard focus, for EVERY caller: the
+      // brief's risk/focus jumps, the findings tab's jumpToFinding, and the blast
+      // card's jumpToFile. Author-signed-off behaviour change, not a side effect.
+      //
+      // `preventScroll: true` is not cosmetic: without it the browser's own
+      // focus scroll fights the smooth `scrollIntoView` immediately above.
+      // Focus lands on the CARD (`rootRef`), which carries `tabIndex={-1}` —
+      // a diff row is not focusable and the criterion names the file card.
+      rootRef.current?.focus({ preventScroll: true });
       if (row) setFlashLine(line);
     }, 60);
     const clear = window.setTimeout(() => setFlashLine(null), 2100);
@@ -123,7 +132,9 @@ export function FileCard({
     : 0;
 
   return (
-    <div ref={rootRef} style={s.fileCard}>
+    // `tabIndex={-1}`: programmatically focusable (SPEC-02 AC-50) but never a
+    // tab stop, so the Tab order through the diff is unchanged.
+    <div ref={rootRef} tabIndex={-1} style={s.fileCard}>
       <div onClick={toggle} style={s.fileHeader}>
         <Icon.ChevronRight size={13} style={chevronFor(open)} />
         <Icon.FileText size={14} style={s.fileIcon} />

@@ -50,6 +50,8 @@ than keeping a second table that drifts.
 | Spec | Feature | Status | Where | Implements |
 |---|---|---|---|---|
 | [SPEC-01](SPEC-01-project-context.md) | Project Context — discover repo Markdown, attach it to agents and skills, inject it into the prompt | `implemented` | `specs/` | L05 |
+| [SPEC-02](SPEC-02-pr-brief.md) | PR Brief — why the PR exists, severity-bearing risks that link into the diff line, and a review focus | `draft` | `specs/` | L05 |
+| [SPEC-03](SPEC-03-reviewer-ordered-diff.md) | Reviewer-ordered diff — a per-file "what this does" summary, severity legible at the line, and reviewer-facing chrome on the shipped Smart Diff | `approved` | `specs/` | L03 |
 
 ## Naming and numbering
 
