@@ -25,9 +25,10 @@ import projectContext from './project-context/routes.js';
  * (skills, intent/smart-diff, blast, brief/context/onboarding, eval/ci/hooks,
  * memory, plugins, …) without touching any other module or the shared schema.
  */
+// This is the list of all the modules. New modules should be added here.
 export const modules: Record<string, FastifyPluginAsync> = {
-  settings,
-  repos,
+  settings, // the settings module
+  repos, // the repos module
   pulls,
   blast,
   polling,
