@@ -1,0 +1,45 @@
+import type { FastifyPluginAsync } from 'fastify';
+import settings from './settings/routes.js';
+import repos from './repos/routes.js';
+import pulls from './pulls/routes.js';
+import blast from './blast/routes.js';
+import brief from './brief/routes.js';
+import fileSummary from './file-summary/routes.js';
+import polling from './polling/routes.js';
+import workspace from './workspace/routes.js';
+import agents from './agents/routes.js';
+import skills from './skills/routes.js';
+import reviews from './reviews/routes.js';
+import repoIntel from './repo-intel/routes.js';
+import conventions from './conventions/routes.js';
+import projectContext from './project-context/routes.js';
+
+/**
+ * Module registry. Each feature module is a Fastify plugin in
+ * `modules/<name>/routes.ts`. Registered here in one place.
+ *
+ * ADD A MODULE: create `modules/<name>/routes.ts` exporting a default Fastify
+ * plugin, then add one import + one entry below. (We register statically rather
+ * than via filesystem autoload so the same code path works under tsx, the
+ * bundler, and vitest — native dynamic import() of .ts files is not portable.)
+ *
+ * This is the Part-0 starter set. Each course lesson adds its own module here
+ * (skills, intent/smart-diff, blast, brief/context/onboarding, eval/ci/hooks,
+ * memory, plugins, …) without touching any other module or the shared schema.
+ */
+export const modules: Record<string, FastifyPluginAsync> = {
+  settings,
+  repos,
+  pulls,
+  blast,
+  brief,
+  fileSummary,
+  polling,
+  workspace,
+  agents,
+  skills,
+  reviews,
+  repoIntel,
+  conventions,
+  projectContext,
+};
