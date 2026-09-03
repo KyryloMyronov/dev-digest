@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { Line } from "./helpers";
+import { SEV, type Severity } from "@devdigest/ui";
 
 /** Co-located styles for the DiffViewer (extracted from inline styles). */
 export const s = {
@@ -11,18 +12,40 @@ export const s = {
     overflow: "hidden",
     background: "var(--bg-elevated)",
   } satisfies CSSProperties,
+  // SPEC-03 D-3: the header row is a NON-INTERACTIVE container. It owns two
+  // real buttons (the disclosure control and the derive control) plus the
+  // finding-jump badge, and a <button> may not contain interactive descendants
+  // — so the fold affordance is the nested `fileDisclosure` button, not this
+  // div. Accepted cost: clicking the badge strip no longer folds the card.
   fileHeader: {
     display: "flex",
     alignItems: "center",
     gap: 10,
     padding: "10px 12px",
+  } satisfies CSSProperties,
+  // SPEC-03 AC-69/AC-70 — the disclosure control. A real <button>, so Enter AND
+  // Space come free from the platform; `flex: 1` (moved off `filePath`) keeps
+  // most of the old header-wide click target for nothing.
+  fileDisclosure: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+    minWidth: 0,
+    padding: 0,
+    border: "none",
+    background: "none",
+    color: "inherit",
+    font: "inherit",
+    textAlign: "left",
     cursor: "pointer",
   } satisfies CSSProperties,
   fileIcon: { color: "var(--text-muted)" } satisfies CSSProperties,
+  // `flex: 1, minWidth: 0` moved to `fileDisclosure` (SPEC-03): the ellipsis
+  // stays here, on the text, and the growth is on the button around it.
   filePath: {
     fontSize: 13,
     fontWeight: 500,
-    flex: 1,
     minWidth: 0,
     overflow: "hidden",
     textOverflow: "ellipsis",
@@ -39,6 +62,64 @@ export const s = {
     background: "none",
     cursor: "pointer",
     font: "inherit",
+  } satisfies CSSProperties,
+  // ---- SPEC-03 · the derived one-line summary -----------------------------
+  /** The summary row, between the header and the body (AC-49 / AC-50). */
+  summaryRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "7px 12px",
+    borderTop: "1px solid var(--border)",
+  } satisfies CSSProperties,
+  /**
+   * AC-73 — `--text-secondary`, NOT `--text-muted`.
+   * `#999999` on `--bg-elevated` `#1c1c1c` measures 5.98:1 (dark) and `#595964`
+   * on `#ffffff` measures 6.92:1 (light). `--text-muted` measures 3.15:1 on
+   * `--bg-elevated` in dark — the shipped group hint uses it, and copying that
+   * would ship the failure this criterion exists to prevent.
+   */
+  summaryText: {
+    fontSize: 12,
+    lineHeight: "17px",
+    color: "var(--text-secondary)",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  } satisfies CSSProperties,
+  /** AC-54 — the summary line's loading placeholder. */
+  summarySkeleton: {
+    display: "block",
+    height: 10,
+    width: "42%",
+    borderRadius: 4,
+    background: "var(--bg-hover)",
+  } satisfies CSSProperties,
+  /** The per-file derivation control (AC-51/AC-52/AC-53). */
+  deriveBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "2px 8px",
+    borderRadius: 5,
+    border: "1px solid var(--border)",
+    background: "none",
+    color: "var(--text-secondary)",
+    font: "inherit",
+    fontSize: 12,
+    cursor: "pointer",
+  } satisfies CSSProperties,
+  /** AC-65/AC-72 — the per-line severity mark: icon AND text, in the margin. */
+  lineSeverity: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 3,
+    flexShrink: 0,
+    padding: "0 4px",
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: "0.02em",
   } satisfies CSSProperties,
   addText: { color: "var(--code-add-text)" } satisfies CSSProperties,
   delText: { color: "var(--code-del-text)" } satisfies CSSProperties,
@@ -97,16 +178,22 @@ export function lineRowFor(kind: Line["kind"]): CSSProperties {
  * than a background swap: the add/del tint is what tells you whether the line
  * was added or removed, and a finding must not overwrite that fact.
  */
-export function findingRowFor(kind: Line["kind"]): CSSProperties {
+export function findingRowFor(kind: Line["kind"], severity?: Severity | null): CSSProperties {
+  // SPEC-03 AC-65 — the rule takes the finding's OWN severity colour when one
+  // resolves. AC-67: with no severity this is byte-identical to the shipped
+  // behaviour (`var(--warn)`), which is the severity-neutral highlight, and it
+  // must stay reachable and unchanged.
+  const rule = severity ? SEV[severity].c : "var(--warn)";
+  const wash = severity ? SEV[severity].bg : "var(--warn-bg)";
   return {
     ...lineRowFor(kind),
-    boxShadow: "inset 3px 0 0 0 var(--warn)",
+    boxShadow: `inset 3px 0 0 0 ${rule}`,
     background:
       kind === "add"
         ? "var(--code-add)"
         : kind === "del"
           ? "var(--code-del)"
-          : "var(--warn-bg)",
+          : wash,
   };
 }
 

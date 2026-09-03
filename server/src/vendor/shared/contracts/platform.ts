@@ -15,6 +15,7 @@ export const FeatureModelId = z.enum([
   'onboarding',
   'review_intent',
   'risk_brief',
+  'file_summary',
   'conformance',
   'conventions',
 ]);
@@ -64,6 +65,21 @@ export const FEATURE_MODELS: FeatureModelDef[] = [
     description: 'Assesses merge risks for a pull request.',
     defaultProvider: 'openai',
     defaultModel: 'gpt-4.1',
+  },
+  {
+    id: 'file_summary',
+    label: 'PR Diff · File summaries',
+    // SPEC-03. Cheap, structured-output capable, and run across many files at
+    // once — the same reasoning `review_intent` gives above.
+    //
+    // `openrouter` IS LOAD-BEARING, not incidental: AC-29 (abandon the
+    // derivation when the resolved model cannot serve structured outputs) is
+    // only ENFORCEABLE on OpenRouter, because the preflight is gated on
+    // `choice.provider === 'openrouter'` — OpenAI and Anthropic publish no
+    // equivalent capability list (`platform/model-catalog.ts`).
+    description: 'Writes a one-line summary of each changed file in a PR.',
+    defaultProvider: 'openrouter',
+    defaultModel: 'deepseek/deepseek-v4-flash',
   },
   {
     id: 'conformance',

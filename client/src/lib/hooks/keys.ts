@@ -119,6 +119,19 @@ export const intentKeys = {
   byPr: (prId: Id) => ["pr-intent", prId] as const,
 };
 
+/** SPEC-02 — the derived PR brief. Shares no prefix with reviewKeys/runKeys/
+    intentKeys, so it must be invalidated by this exact key, never by a sweep. */
+export const briefKeys = {
+  byPr: (prId: Id) => ["pr-brief", prId] as const,
+};
+
+/** SPEC-03 — the PR's derived per-file summaries. Shares no prefix with
+    pullKeys/reviewKeys/intentKeys/briefKeys, so it must be invalidated by this
+    exact key, never by a prefix sweep. */
+export const fileSummaryKeys = {
+  byPr: (prId: Id) => ["pr-file-summaries", prId] as const,
+};
+
 export const runKeys = {
   byPr: (prId: Id) => ["pr-runs", prId] as const,
   activeByPr: (prId: Id) => ["pr-active-runs", prId] as const,

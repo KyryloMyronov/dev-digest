@@ -109,6 +109,14 @@ export default function PRDetailPage() {
     setDiffReveal((prev) => ({ path, line: null, token: (prev?.token ?? 0) + 1 }));
     setTab("diff");
   };
+  // SPEC-02 — the brief's risk / review-focus jumps. Same two lines as
+  // `jumpToFinding`, but the line is optional: a review-focus entry may point at
+  // a whole file, and an unresolvable citation reveals the file with no anchor
+  // (AC-41, AC-43, AC-66).
+  const jumpToLocation = (path: string, line: number | null) => {
+    setDiffReveal((prev) => ({ path, line, token: (prev?.token ?? 0) + 1 }));
+    setTab("diff");
+  };
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -120,6 +128,18 @@ export default function PRDetailPage() {
   // New-side lines present in the diff — a finding outside this set gets the
   // attention mark on its card instead of a jump that can't land anywhere.
   const diffIndex = React.useMemo(() => diffLineIndex(pr?.files ?? []), [pr?.files]);
+  // SPEC-02 AC-42 — the brief's citations are re-checked against the SAME index
+  // the findings tab uses. One index, one truth: a second one would silently
+  // disagree with the findings tab about which lines a jump can land on.
+  const citationInDiff = (c: { file: string; start_line?: number | null }) =>
+    // `findingInDiff` types `start_line` as `number` while its body handles a
+    // missing one explicitly (`DiffTab/helpers.ts` — `f.start_line == null`).
+    // A brief citation may genuinely have none, so cast here rather than widen
+    // a shipped signature the findings path also depends on.
+    findingInDiff(
+      { file: c.file, start_line: (c.start_line ?? null) as unknown as number },
+      diffIndex,
+    );
   const findingsCount = allFindings.length;
   // Header counters derive from the same ["reviews", prId] query the modal
   // reads, so a counter can never disagree with the list it opens.
@@ -199,6 +219,8 @@ export default function PRDetailPage() {
             headSha={pr.head_sha}
             repoFullName={repoFullName}
             onRevealFile={jumpToFile}
+            onRevealLocation={jumpToLocation}
+            citationInDiff={citationInDiff}
           />
         )}
 
@@ -241,6 +263,14 @@ export default function PRDetailPage() {
             reviewsPending={reviewsPending}
             reviewsFailed={reviewsFailed}
             reveal={diffReveal}
+            /* SPEC-03 — three props, nothing else. `head_sha` is AC-58's
+               comparison (a stored summary naming another commit is badged
+               stale); the aggregate is AC-41's, already on `PrMeta` and already
+               rendered by `PrDetailHeader`. No second line index: `diffIndex`
+               above is built once and shared. */
+            headSha={pr.head_sha}
+            additions={pr.additions}
+            deletions={pr.deletions}
           />
         )}
       </div>

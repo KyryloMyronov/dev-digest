@@ -15,10 +15,21 @@
 
 import React from "react";
 import { SectionLabel, Button, Badge } from "@devdigest/ui";
-import { DiffViewer, type DiffCommentApi, type DiffReveal } from "@/components/diff-viewer";
+import {
+  DiffViewer,
+  type DiffCommentApi,
+  type DiffReveal,
+  type DiffSummaryApi,
+} from "@/components/diff-viewer";
 import { useTranslations } from "next-intl";
 import { usePrComments, useCreatePrComment } from "@/lib/hooks/reviews";
 import { useSmartDiff } from "@/lib/hooks";
+import {
+  DERIVE_TIMEOUT_MS,
+  useDeriveFileSummaries,
+  usePrFileSummaries,
+} from "@/lib/hooks/file-summary";
+import { formatCost } from "@/lib/format-cost";
 import { notify } from "@/lib/toast";
 import type { PrFile, ReviewRecord } from "@devdigest/shared";
 import {
@@ -27,6 +38,7 @@ import {
   resolveGroups,
   withFoldOverrides,
   withRoleTags,
+  withSummaries,
 } from "./helpers";
 import { fileFold, setFileFold } from "./foldStore";
 import { storedViewMode, storeViewMode, type DiffViewMode } from "./viewMode";
@@ -53,6 +65,12 @@ interface DiffTabProps {
   reviewsFailed?: boolean;
   /** Jump-to-finding request (page-owned so it survives the tab switch). */
   reveal?: DiffReveal | null;
+  /** SPEC-03 AC-58 — the commit the PR is on right now; a stored summary naming
+   *  a different one is badged stale rather than hidden. */
+  headSha?: string | null;
+  /** SPEC-03 AC-41 — the PR's aggregate, already on `PrMeta`. */
+  additions?: number;
+  deletions?: number;
 }
 
 export function DiffTab({
@@ -64,6 +82,9 @@ export function DiffTab({
   reviewsPending,
   reviewsFailed,
   reveal,
+  headSha,
+  additions,
+  deletions,
 }: DiffTabProps) {
   const t = useTranslations("prReview");
   const { data: comments } = usePrComments(prId);
@@ -86,6 +107,108 @@ export function DiffTab({
   };
 
   const commentCount = comments?.length ?? 0;
+
+  // ---- SPEC-03 · file summaries -------------------------------------------
+  //
+  // THE TWO WAITS LIVE HERE (AC-63 / AC-64), because only the tab knows about
+  // both. `prLevelPending` is one derivation over the whole selection;
+  // `pending` is the per-file control's own set. Each gets its own
+  // DERIVE_TIMEOUT_MS timer (AC-57), and the query polls while EITHER is
+  // active.
+  //
+  // Their stop conditions differ on purpose. A per-file summary landing bumps
+  // `selected` by one, which does NOT satisfy `selected === total`, so the
+  // PR-level wait continues while the landed summary renders — that is AC-64,
+  // true by construction rather than by accident. On a token-capped PR
+  // `selected < total` forever, so the PR-level wait ends at AC-57's 90 s; that
+  // is the NORMAL exit for a capped PR, not a failure, and the summaries that
+  // did land are already on screen.
+  const [prLevelPending, setPrLevelPending] = React.useState(false);
+  const [pending, setPending] = React.useState<ReadonlySet<string>>(() => new Set());
+  const [timedOut, setTimedOut] = React.useState(false);
+  const timers = React.useRef<number[]>([]);
+  React.useEffect(
+    () => () => {
+      timers.current.forEach((id) => window.clearTimeout(id));
+    },
+    [],
+  );
+
+  const waiting = prLevelPending || pending.size > 0;
+  const summariesQuery = usePrFileSummaries(prId, { pollWhile: waiting });
+  const derive = useDeriveFileSummaries(prId);
+  const summaryData = summariesQuery.data;
+
+  // The server's own state ends both waits: a derivation started in another tab
+  // clears them too, which a client-only flag could not do.
+  React.useEffect(() => {
+    if (!summaryData) return;
+    if (prLevelPending && summaryData.selected >= summaryData.total) setPrLevelPending(false);
+    if (pending.size > 0) {
+      const landed = new Set(summaryData.summaries.map((x) => x.path));
+      setPending((prev) => {
+        const next = new Set([...prev].filter((p) => !landed.has(p)));
+        return next.size === prev.size ? prev : next;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summaryData]);
+
+  const startPrLevelDerivation = () => {
+    setTimedOut(false);
+    setPrLevelPending(true);
+    derive.mutate({});
+    // AC-57 — give up after 90 s and return the control to idle.
+    timers.current.push(
+      window.setTimeout(() => {
+        setPrLevelPending(false);
+        setTimedOut(true);
+      }, DERIVE_TIMEOUT_MS),
+    );
+  };
+
+  const deriveOne = React.useCallback(
+    (path: string) => {
+      setTimedOut(false);
+      setPending((prev) => new Set(prev).add(path));
+      derive.mutate({ path });
+      timers.current.push(
+        window.setTimeout(() => {
+          setPending((prev) => {
+            const next = new Set(prev);
+            next.delete(path);
+            return next;
+          });
+        }, DERIVE_TIMEOUT_MS),
+      );
+    },
+    [derive],
+  );
+
+  // Labels arrive RESOLVED: `FileCard` and `CodeLine` are shared components, and
+  // one that resolves its own i18n namespace crashes any screen whose catalogue
+  // lacks it (client insights.md 2026-08-27).
+  const summaryApi: DiffSummaryApi = {
+    onDerive: deriveOne,
+    prLevelPending,
+    pending,
+    loading: summariesQuery.isPending,
+    labels: {
+      derive: t("smartDiff.deriveFile"),
+      deriving: t("smartDiff.deriveFileBusy"),
+      noPatch: t("smartDiff.deriveFileNoPatch"),
+    },
+  };
+
+  // AC-59 — the running total, through the SHARED formatter, with an explicit
+  // placeholder for null. NEVER `cost_usd ?? 0`: `null` (unpriced) and `0`
+  // (genuinely free) are different facts, which is why `formatCost` takes the
+  // placeholder as an argument. This total is exactly D-1's apportioned sum.
+  const costTotal = React.useMemo(() => {
+    const rows = summaryData?.summaries ?? [];
+    const priced = rows.filter((r) => r.cost_usd != null);
+    return priced.length === 0 ? null : priced.reduce((n, r) => n + (r.cost_usd ?? 0), 0);
+  }, [summaryData]);
 
   const commenting: DiffCommentApi = {
     comments: comments ?? [],
@@ -129,8 +252,9 @@ export function DiffTab({
             return { label: t(meta.labelKey), color: meta.color, bg: meta.bg };
           })
         : base;
-    return withFoldOverrides(tagged, files, (path) => fileFold(prId, path));
-  }, [smart, reviews, files, prId, smartActive, t]);
+    const withSummary = withSummaries(tagged, summaryData, headSha, t("smartDiff.staleSummary"));
+    return withFoldOverrides(withSummary, files, (path) => fileFold(prId, path));
+  }, [smart, reviews, files, prId, smartActive, t, summaryData, headSha]);
 
   // The badge counts what the file badges count: each agent's current,
   // non-dismissed findings. The Findings tab's total can legitimately be
@@ -171,17 +295,19 @@ export function DiffTab({
         right={
           <div style={s.headerRight}>
             {findingsBadge}
+            {/* AC-42 — `Smart order` FIRST in the DOM, then `Original order`.
+                AC-43 — the `groups.length > 0` conditional is SHIPPED behaviour
+                and stays: a toggle with nothing to toggle into is a dead
+                control.
+
+                P-4 FIREWALL. These are the exact lines P-4 concerns, and P-4
+                was REJECTED by the author: the missing `aria-pressed` stays as
+                recorded pre-existing debt with a named follow-up. `Button`
+                spreads `...rest`, so the fix is one attribute away — DO NOT add
+                `aria-pressed`, `role="radio"` or `aria-current` here. Sweeping
+                it in silently is the failure mode. */}
             {groups.length > 0 && (
               <div style={s.modeToggle}>
-                <Button
-                  kind="tertiary"
-                  size="sm"
-                  icon="ListChecks"
-                  active={mode === "standard"}
-                  onClick={() => selectMode("standard")}
-                >
-                  {t("smartDiff.standardMode")}
-                </Button>
                 <Button
                   kind="tertiary"
                   size="sm"
@@ -191,8 +317,30 @@ export function DiffTab({
                 >
                   {t("smartDiff.smartMode")}
                 </Button>
+                <Button
+                  kind="tertiary"
+                  size="sm"
+                  icon="ListChecks"
+                  active={mode === "standard"}
+                  onClick={() => selectMode("standard")}
+                >
+                  {t("smartDiff.standardMode")}
+                </Button>
               </div>
             )}
+            {/* THE ONE SURFACE NO ACCEPTANCE CRITERION NAMES. AC-13 defines the
+                PR-level derivation and AC-63/AC-64 presuppose a way to start
+                it, but no criterion requires this control. A deliberate,
+                minimal widening — flagged here rather than absorbed silently. */}
+            <Button
+              kind="tertiary"
+              size="sm"
+              icon="Sparkles"
+              disabled={prLevelPending || !prId}
+              onClick={startPrLevelDerivation}
+            >
+              {prLevelPending ? t("smartDiff.summariseAllBusy") : t("smartDiff.summariseAll")}
+            </Button>
             {commentCount > 0 && (
               <Button
                 kind="ghost"
@@ -206,12 +354,72 @@ export function DiffTab({
           </div>
         }
       >
-        Files changed · {filesCount} files
-        {smartActive && " · "}
-        {smartActive && <span style={s.groupMeta}>{t("smartDiff.groupedByRole")}</span>}
+        {t("smartDiff.sectionLabel")}
       </SectionLabel>
 
+      {/* AC-41 — the count and the aggregate, a SIBLING immediately below the
+          label: `SectionLabel` has no slot beneath it (`vendor/**` is
+          do-not-touch, so the primitive is not edited). The aggregate comes
+          from the PR row when the page passes it, else from the files. */}
+      <div style={s.aggregate}>
+        <span className="tnum">
+          {t("smartDiff.fileAggregate", {
+            count: filesCount,
+            additions: additions ?? files.reduce((n, f) => n + f.additions, 0),
+            deletions: deletions ?? files.reduce((n, f) => n + f.deletions, 0),
+          })}
+        </span>
+        {/* AC-59 — the running total, whenever any summary is available. */}
+        {(summaryData?.summaries.length ?? 0) > 0 && (
+          <span className="tnum">
+            {t("smartDiff.costTotal", { cost: formatCost(costTotal, t("smartDiff.costUnknown")) })}
+          </span>
+        )}
+        {/* AC-60 — under D-2 this reads "eligible but not summarised", NOT
+            "dropped by the token cap"; the per-file control (AC-51) is what
+            distinguishes the two on screen. */}
+        {(summaryData?.omitted_files.length ?? 0) > 0 && (
+          <span className="tnum">
+            {t("smartDiff.summarised", {
+              selected: summaryData!.selected,
+              total: summaryData!.total,
+            })}
+          </span>
+        )}
+      </div>
+
+      {/* AC-48 — P-7: one sentence separating this ordering from the brief's
+          review focus. Without it the reviewer reconciles two "where do I
+          start?" answers alone. */}
+      <p style={s.vsBrief}>{t("smartDiff.vsBrief")}</p>
+
+      {/* AC-71 — WCAG 2.2 · 4.1.3. A derivation landing is announced without
+          moving focus. NOTE for anyone tempted to widen this: 4.1.3 does NOT
+          govern a tab switch — its Understanding document lists selecting a
+          different tab among the changes that are NOT status messages. Do not
+          wrap the view-mode toggle or the tab switch in a live region. */}
+      <div role="status" aria-live="polite" style={s.statusRegion}>
+        {waiting
+          ? t("smartDiff.statusDeriving")
+          : timedOut
+            ? t("smartDiff.statusTimedOut")
+            : (summaryData?.summaries.length ?? 0) > 0
+              ? t("smartDiff.statusReady")
+              : t("smartDiff.statusIdle")}
+      </div>
+
       <div style={s.wrap}>
+        {/* AC-55 — the read failed: an explicit state with a RETRY control,
+            branching on the query's error. The SPA has no server-rendered
+            fallback, so every screen owes a real error state. */}
+        {summariesQuery.isError && (
+          <div style={s.summariesError}>
+            <span>{t("smartDiff.summariesFailed")}</span>
+            <Button kind="tertiary" size="sm" icon="RefreshCw" onClick={() => summariesQuery.refetch()}>
+              {t("smartDiff.summariesRetry")}
+            </Button>
+          </div>
+        )}
         {smart && <SplitSuggestion suggestion={smart.split_suggestion} />}
         {smartActive ? (
           <SmartDiffGroups
@@ -219,6 +427,7 @@ export function DiffTab({
             groups={groups}
             annotations={annotations}
             commenting={commenting}
+            summary={summaryApi}
             reveal={reveal ?? null}
             onFileOpenChange={(path, open) => setFileFold(prId, path, open)}
           />
@@ -227,6 +436,7 @@ export function DiffTab({
             files={files}
             commenting={commenting}
             annotations={annotations}
+            summary={summaryApi}
             reveal={reveal ?? null}
             onFileOpenChange={(path, open) => setFileFold(prId, path, open)}
           />

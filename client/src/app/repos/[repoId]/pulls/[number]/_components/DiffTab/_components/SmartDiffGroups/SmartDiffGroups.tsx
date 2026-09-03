@@ -14,6 +14,7 @@ import {
   type DiffAnnotations,
   type DiffCommentApi,
   type DiffReveal,
+  type DiffSummaryApi,
 } from "@/components/diff-viewer";
 import { ROLE_META } from "../../constants";
 import { type ResolvedGroup } from "../../helpers";
@@ -25,6 +26,7 @@ function GroupSection({
   group,
   annotations,
   commenting,
+  summary,
   reveal,
   onFileOpenChange,
 }: {
@@ -32,6 +34,8 @@ function GroupSection({
   group: ResolvedGroup;
   annotations: DiffAnnotations;
   commenting?: DiffCommentApi;
+  /** SPEC-03 — forwarded unchanged; this component makes no decision about it. */
+  summary?: DiffSummaryApi;
   reveal?: DiffReveal | null;
   onFileOpenChange?: (path: string, open: boolean) => void;
 }) {
@@ -89,6 +93,7 @@ function GroupSection({
           files={group.files}
           commenting={commenting}
           annotations={annotations}
+          summary={summary}
           reveal={containsReveal ? reveal : null}
           onFileOpenChange={onFileOpenChange}
         />
@@ -102,6 +107,7 @@ export function SmartDiffGroups({
   groups,
   annotations,
   commenting,
+  summary,
   reveal,
   onFileOpenChange,
 }: {
@@ -109,6 +115,7 @@ export function SmartDiffGroups({
   groups: ResolvedGroup[];
   annotations: DiffAnnotations;
   commenting?: DiffCommentApi;
+  summary?: DiffSummaryApi;
   reveal?: DiffReveal | null;
   onFileOpenChange?: (path: string, open: boolean) => void;
 }) {
@@ -121,6 +128,7 @@ export function SmartDiffGroups({
           group={group}
           annotations={annotations}
           commenting={commenting}
+          summary={summary}
           reveal={reveal}
           onFileOpenChange={onFileOpenChange}
         />

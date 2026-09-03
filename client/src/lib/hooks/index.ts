@@ -8,6 +8,8 @@ export * from "./agents";
 export * from "./skills";
 export * from "./reviews";
 export * from "./intent";
+export * from "./brief";
+export * from "./file-summary";
 export * from "./blast";
 export * from "./trace";
 export * from "./repo-intel";

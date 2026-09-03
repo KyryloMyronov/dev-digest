@@ -14,6 +14,234 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-29 — a stub that ignores the parameter it is handed makes that parameter's value unfalsifiable, and `toBe(THE_CONSTANT)` hides it
+
+**Rubric:** What Doesn't Work
+**Symptom:** `BRIEF_MAX_OUTPUT_TOKENS = 2_000` shipped through a full
+`plan-verifier` pass — 521 server tests, four clean typechecks, `lint:arch`
+clean, two `architecture-reviewer` passes at 0 blocking — and was wrong by 3×.
+The largest answer SPEC-02's schema and clamps permit measures **~7_750
+tokens**, so the cap could not hold a full-size answer from any model. Every
+live derivation came back truncated; the studio showed a dead button.
+
+**Cause:** two independent blind spots that only bite together.
+1. `StubLlm.completeStructured` (`test/brief-pipeline.test.ts`) recorded the
+   request and returned its fixture **without reading `req.maxTokens`**. A real
+   provider stops generating at the cap and hands back a truncated body. So no
+   test in the repo could go red for a cap that was too small — the failure mode
+   did not exist in the test world.
+2. The one assertion that touched the number was
+   `expect(llm.calls[0]!.maxTokens).toBe(2_000)` — a literal restating the
+   constant. It proves the value is passed, never that it suffices. A test whose
+   expected value is copied from the implementation cannot fail for the reason
+   you care about.
+
+Underneath both: the 2_000 was derived **backwards from a cost target** (SPEC-02
+NFR-4 — "a 2 000-token cap on output at $8.00/1M = $0.016"), and then "measured"
+by `estimateCost` over the stub's own declared token counts. A cost ceiling is
+not a correctness bound, and nobody ever measured how long an answer is.
+
+**Fix:** When a stub stands in for something that ENFORCES a limit, make the
+stub enforce it — `StubLlm` now truncates and throws when the serialised fixture
+exceeds `req.maxTokens`, with an explicit `ignoresMaxTokens` opt-out for AC-16,
+whose clamp exists precisely for a provider that overruns. Then assert the
+budget against a **generated worst case**, not a literal: `output token budget >
+BRIEF_MAX_OUTPUT_TOKENS can hold the largest answer the schema and clamps
+permit` builds the maximal answer from `MAX_BRIEF_RISKS` / `MAX_*_CHARS` and
+counts it with the real `TiktokenTokenizer`. Verify a new guard by reverting the
+constant to the broken value and watching it go red — this one reports `expected
+7753 to be less than or equal to 2000`. General rule: if a constant's value can
+change without any test changing colour, the constant is untested no matter how
+many tests name it.
+
+## 2026-08-29 — a REASONING model spends `max_tokens` on reasoning before emitting JSON, so a tight cap fails structured output with EMPTY content
+
+**Rubric:** Tool & Library Notes
+**Symptom:** `Derive brief` in the studio did nothing at all. `POST /pulls/:id/brief`
+returned `202`, the `brief.derive` job finished `status='done'`, and `pr_brief`
+stayed empty. Direct pipeline run:
+`Brief derivation unavailable (llm_failed): OpenRouter structured output failed
+schema validation for PrRiskBrief`. Replaying the pipeline's exact call shape
+4× against `deepseek/deepseek-v4-flash` gave `finish_reason=length` and
+`completion_tokens=2000` (exactly the cap) every time — 3 of 4 with **`content`
+of length 0** while still billing 2000 tokens, 1 truncated mid-JSON.
+
+**Cause:** `BRIEF_MAX_OUTPUT_TOKENS = 2_000`. Reasoning tokens are drawn from
+the same `max_tokens` budget as the answer, so a reasoning model can exhaust the
+cap before writing a single character of JSON. `deepseek/deepseek-v4-flash`
+lists `reasoning`, `reasoning_effort` and `include_reasoning` in its OpenRouter
+`supported_parameters` — it is one. `BRIEF_LLM_MAX_RETRIES = 0` (AC-14, one
+billed call) then means there is no repair attempt, so it is `llm_failed` on
+every derivation. The same prompt needs only ~1_700 tokens of actual answer,
+which is why raising the cap to `8_000` fixes it outright rather than merely
+making it likelier to fit.
+
+Two things made this look like a client bug for a long time: a failed derivation
+deliberately writes NO row (AC-11) and the job handler deliberately swallows the
+error (AC-10), so nothing server-side records the failure; and `BriefCard`'s only
+feedback is a `role="status"` region in an **`sr-only`** div, so the studio shows
+a 90 s spinner and then silently reverts to its empty state.
+
+**Fix:** Before picking a model for any structured-output feature, check
+`reasoning` / `reasoning_effort` in its OpenRouter `supported_parameters`
+(`curl -H "Authorization: Bearer $OPENROUTER_API_KEY"
+https://openrouter.ai/api/v1/models`). If present, size `max_tokens` at roughly
+4–5× the answer you expect, never at the answer's own size. Diagnose this class
+of failure by `finish_reason` and `completion_tokens`, not by the schema error —
+`finish_reason='length'` with `completion_tokens` equal to the cap is the tell,
+and empty `content` alongside a non-zero token bill means reasoning ate all of
+it. Note this is the mirror image of the root `insights.md` 2026-08-22 entry
+(omitting `max_tokens` 402s a low-credit account): both directions are traps, so
+set it explicitly AND size it for reasoning.
+
+## 2026-08-29 — a declared Zod `body:` schema REJECTS a body-less POST; the sibling `.nullable()` response lesson does not transfer
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** `POST /pulls/:id/file-summaries` with an optional body, declared as
+`schema: { body: FileSummaryDeriveInput }` where both fields are `.optional()`.
+A request with **no body and no content-type** returns 422:
+
+```
+{"error":{"code":"validation_error","message":"Request validation failed",
+ "details":[{"keyword":"invalid_type", … "message":"Expected object, received null"}]}}
+```
+
+Five tests went red from this one cause, and the expensive one was **not** the
+obvious one: the rate-limit test sent eleven body-less POSTs, so all eleven died
+at validation and never reached `@fastify/rate-limit`. That criterion would have
+shipped **unproven rather than failing** — green in a suite that never exercised
+the limiter.
+**Cause:** Fastify sets `req.body = null` for a POST with no body, and a bare
+`z.object` rejects `null`. The error message states the mechanism exactly.
+**Fix:** `body: MySchema.nullish()`. It accepts the body-less POST *and* keeps
+rejecting a malformed one — measured on all three options:
+
+| declaration | no body | `{}` | `{path: 42}` |
+|---|---|---|---|
+| `MySchema` | **422** | 202 | 422 |
+| `MySchema.nullish()` | **202** | 202 | **422** |
+| no `body:` + hand-parse | 202 | 202 | *silently ignored* |
+
+The handler's `req.body ?? {}` then copes with `null` unchanged. Prefer this over
+the hand-parse idiom `modules/brief/routes.ts` uses, which accepts a malformed
+body silently (that route still does — an unfixed follow-up, not a pattern to
+copy).
+
+**Read this together with the 2026-08-28 `.nullable()` entry below, because the
+pair is the lesson.** A declared Zod schema is safe on a **response** (`null`
+serialises fine) and unsafe on an **optional request body** (`null` fails
+validation). Written down, the two questions look identical; they resolve in
+opposite directions. Settle a body-less POST with a real `app.inject()` **before**
+building anything on the route.
+
+## 2026-08-29 — a multi-row `onConflictDoUpdate` must set from `excluded.*`; spreading the JS row writes ONE row's values over every conflicting row
+
+**Rubric:** What Doesn't Work
+**Symptom:** none observed — caught in review before it shipped. The trap is that
+it cannot be caught by a single-row test, and every existing example in this repo
+is single-row.
+**Cause:** the shipped idiom for a one-row upsert is
+`set: { ...row, createdAt: sql\`now()\` }` (`modules/brief/repository.ts:87-90`).
+That is correct *only* because `pr_brief` has exactly one row per PR. `set:`
+values are evaluated **once for the whole statement**, so applying the same
+spread to a multi-row insert writes the *last* JS row's `summary`, `tokens_in`
+and `cost_usd` onto **every** conflicting row — silent cross-contamination, no
+error, and a single-row fixture passes.
+**Fix:** in a multi-row upsert, set each column from the row Postgres is actually
+inserting:
+
+```ts
+.onConflictDoUpdate({
+  target: [t.prFileSummaries.prId, t.prFileSummaries.path, t.prFileSummaries.headSha],
+  set: {
+    summary:  sql`excluded.summary`,
+    tokensIn: sql`excluded.tokens_in`,
+    costUsd:  sql`excluded.cost_usd`,
+    createdAt: sql`now()`,        // still SQL, per the 2026-08-17 two-clocks entry
+  },
+})
+```
+
+Working example: `modules/file-summary/repository.ts`. Pin it with a test that
+upserts **two or more** rows and asserts each keeps *its own* value — a one-row
+test cannot distinguish the two idioms.
+
+## 2026-08-29 — Colima's socket DID work for testcontainers here, contradicting the 2026-08-27 Rancher entry
+
+**Rubric:** Open Questions
+**Symptom:** none yet — latent, and it is a contradiction rather than a failure.
+The 2026-08-27 entry below says the Colima socket does **not** fix
+`Could not find a working container runtime strategy` and that
+`DOCKER_HOST=unix://$HOME/.rd/docker.sock` is what works on this machine. In this
+session the **Colima** socket worked for **16/16** `.it.test.ts` files and 147
+tests, across four separate runs on 2026-08-28 and 2026-08-29:
+
+```sh
+export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
+```
+
+**Cause (hypothesis, not established):** the two commands need different things.
+`db:migrate` and `db:seed` reach **host port 5432**, forwarded by Rancher, so
+they hit Rancher's Postgres — which is the half the 2026-08-27 entry is about,
+and it stays true. testcontainers does **not** use host 5432: it creates its own
+container over whichever socket it can reach, so Colima suffices for it. If that
+is right, neither entry is wrong — they answer different questions, and the
+2026-08-27 wording ("point *both* variables at the Rancher socket") reads as
+covering both when it may only cover the migrate/seed path.
+**Fix:** unverified. Before trusting either entry, run
+`docker context ls` and try the suite; if Colima works, the entry below is
+narrower than it reads. **Do not delete or edit the 2026-08-27 entry on the
+strength of this** — it was written from a real failure and this session did not
+reproduce that failure. Whoever next hits a Docker problem here should settle
+which socket serves which command and supersede both.
+
+## 2026-08-28 — a top-level `.nullable()` response schema DOES serialise `null` — you do not need an envelope for "not computed yet"
+
+**Rubric:** What Works
+**Symptom:** none — this closes a risk that was carried as an open question
+through a whole spec and plan. SPEC-02 needed `GET /pulls/:id/brief` to answer
+"no brief has been derived" and nobody knew whether
+`response: { 200: PrBriefRecord.nullable() }` would survive
+`fastify-type-provider-zod`'s serializer, or whether the payload had to be
+wrapped as `{ brief: … | null }` to be safe.
+**Cause:** unfalsified caution. The 2026-08-2x entry below established that
+declared `response:` schemas work at all (the serializer half of
+`app.ts:64-65` was wired from the start and simply unused), but only for
+object-typed contracts. A **top-level** nullable was untested here.
+**Fix:** it works. `modules/brief/routes.ts` declares
+`response: { 200: PrBriefRecord.nullable() }` and `app.inject()` on a PR with no
+brief returns **HTTP 200 with the body literally `null`**
+(`test/brief-routes.test.ts`). No envelope, no `204`, no sentinel object.
+Prefer this over inventing a wrapper the client then has to unwrap — a nullable
+record is the honest shape for "this may not exist yet", and the client's
+`.nullish()` handling already copes.
+
+## 2026-08-28 — `@fastify/rate-limit` is inert under `NODE_ENV=test`, so a per-route `config.rateLimit` needs a non-standard app build to test at all
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** a route declares `config: { rateLimit: { max: 5, timeWindow: '1 minute' } }`
+and a test firing six requests at it asserts a `429` — which never arrives. Every
+request returns `202`. The route looks broken; it is not. Reading the route,
+the plugin registration and the config all show correct code, which is what makes
+this expensive.
+**Cause:** `server/AGENTS.md` documents the *fact* — "rate limiting is disabled
+under `NODE_ENV=test` so integration suites can hammer `inject()`" — but not its
+consequence: under the standard test app build the plugin is never registered, so
+a per-route `config.rateLimit` is dead configuration and **no test can observe
+it**. An acceptance criterion asserting a 429 is unverifiable by default.
+**Fix:** build the app once, in its own isolated `describe`, with the env flipped:
+
+```ts
+const app = await buildApp(loadConfig({ ...process.env, NODE_ENV: 'development' }));
+// now 5×202, then the 6th → 429
+```
+
+Keep it in a separate `describe` with its own `buildApp`/close so the rest of the
+suite keeps the fast, unthrottled app. `test/brief-routes.test.ts` is the worked
+example (SPEC-02 AC-9). If you write a rate-limit AC, write this build with it —
+otherwise the criterion ships green and unproven.
+
 ## 2026-08-27 — two Docker runtimes installed: `docker context` says Colima, but the socket that reaches host :5432 is Rancher Desktop's
 
 **Rubric:** Recurring Errors & Fixes

@@ -19,6 +19,24 @@ export interface DiffAnnotation {
   /** Small group tag on the file header (Smart Diff role label), so a collapsed
    *  file still says which group it belongs to. */
   tag?: { label: string; color: string; bg: string };
+  /** SPEC-03 — the file's derived one-line summary, already resolved for
+   *  rendering. Labels arrive as STRINGS, not message keys: a shared component
+   *  that resolves its own i18n namespace crashes any screen whose catalogue
+   *  lacks it (client insights.md 2026-08-27), and this file already carries a
+   *  resolved `tag: {label,color,bg}` for exactly that reason. */
+  summary?: {
+    text: string;
+    headSha: string;
+    /** AC-58 — `head_sha` !== the PR's current head. The TEXT still renders. */
+    stale: boolean;
+    /** Resolved label for the staleness badge. */
+    staleLabel: string;
+  };
+  /** SPEC-03 AC-65 — worst severity per NEW-side line number. A line marked by
+   *  `findingLines` with no entry here renders the shipped severity-neutral
+   *  highlight (AC-67), which is why this map may legitimately be narrower than
+   *  `findingLines` — but never the other way round. */
+  severitiesByLine?: ReadonlyMap<number, Severity>;
 }
 
 /**

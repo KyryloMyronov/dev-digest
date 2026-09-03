@@ -15,6 +15,8 @@ import {
   Settings,
   Repo,
   PrDetail,
+  PrFileSummariesResponse,
+  FeatureModelId,
 } from '@devdigest/shared';
 
 /**
@@ -84,10 +86,32 @@ describe('AI contracts parse fixtures', () => {
       }),
     ).not.toThrow();
     expect(() =>
+      // SPEC-02 retyped `Risk`: `severity` moved from RiskSeverity
+      // (high|medium|low) to the product's Severity, and the shape gained the
+      // citation fields `file` / `start_line` / `end_line`. `file_refs` is now
+      // `.nullish()` legacy. The fixture follows the contract; nothing is
+      // loosened here.
       Risks.parse({
-        risks: [{ kind: 'security', title: 't', explanation: 'e', severity: 'high', file_refs: [] }],
+        risks: [
+          {
+            kind: 'security',
+            title: 't',
+            explanation: 'e',
+            severity: 'CRITICAL',
+            file: 'src/a.ts',
+            start_line: 10,
+            end_line: 12,
+            file_refs: [],
+          },
+        ],
       }),
     ).not.toThrow();
+    // The citation fields are REQUIRED — a risk with no line range must not parse.
+    expect(() =>
+      Risks.parse({
+        risks: [{ kind: 'security', title: 't', explanation: 'e', severity: 'CRITICAL' }],
+      }),
+    ).toThrow();
     expect(() =>
       PrHistory.parse({
         history: [
@@ -173,6 +197,64 @@ describe('AI contracts parse fixtures', () => {
       log: [{ t: '00.00', kind: 'info', msg: 'started' }],
     });
     expect(trace.tool_calls).toHaveLength(1);
+  });
+});
+
+describe('SPEC-03 file summaries', () => {
+  it('PrFileSummariesResponse — a null cost and a real cost both parse, and null survives', () => {
+    const parsed = PrFileSummariesResponse.parse({
+      summaries: [
+        {
+          path: 'src/middleware/ratelimit.ts',
+          summary: 'Adds a token-bucket limiter keyed on bucketKey.',
+          head_sha: 'abc1234',
+          provider: 'openrouter',
+          model: 'deepseek/deepseek-v4-flash',
+          tokens_in: 1200,
+          tokens_out: 25,
+          // Unpriced model — NOT the same fact as 0, and must not be coalesced.
+          cost_usd: null,
+          created_at: '2026-08-28T10:00:00.000Z',
+        },
+        {
+          path: 'src/config.ts',
+          summary: 'Reads the limiter window from the environment.',
+          head_sha: 'abc1234',
+          cost_usd: 0.0031,
+          created_at: '2026-08-28T10:00:00.000Z',
+        },
+      ],
+      omitted_files: ['src/huge.ts'],
+      selected: 2,
+      total: 3,
+    });
+    expect(parsed.summaries[0]!.cost_usd).toBeNull();
+    expect(parsed.summaries[1]!.cost_usd).toBe(0.0031);
+    // `.nullish()` fields may be absent entirely.
+    expect(parsed.summaries[1]!.provider).toBeUndefined();
+    expect(parsed.omitted_files).toEqual(['src/huge.ts']);
+  });
+
+  it('PrFileSummariesResponse — cost_usd is required (nullable, not optional)', () => {
+    expect(() =>
+      PrFileSummariesResponse.parse({
+        summaries: [
+          {
+            path: 'a.ts',
+            summary: 's',
+            head_sha: 'sha',
+            created_at: '2026-08-28T10:00:00.000Z',
+          },
+        ],
+        omitted_files: [],
+        selected: 1,
+        total: 1,
+      }),
+    ).toThrow();
+  });
+
+  it('FeatureModelId accepts the new file_summary id', () => {
+    expect(FeatureModelId.parse('file_summary')).toBe('file_summary');
   });
 });
 

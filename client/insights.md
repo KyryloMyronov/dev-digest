@@ -14,6 +14,119 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-29 — adding `aria-expanded` to a REPEATED component silently poisons every `getByRole("button", {expanded})` query in the suite
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** making the file-card header a real disclosure control (one
+`<button aria-expanded>` per file) broke **ten** existing assertions in
+`DiffTab.test.tsx` that had nothing to do with file cards. Two shapes:
+
+```
+Found multiple elements with the role "button" and expanded state "false"
+expected 5 to be 2      // getAllByRole("button", {expanded: true})
+```
+
+The plan predicted **seven** of them. Three more were found only by running the
+suite — and those three were a *different* cause: `Found multiple elements with
+the text: "Critical"`, because the same feature also put a severity label at the
+line as well as in the file header badge.
+**Cause:** `getByRole("button", {expanded})` is a **document-wide** query. Before
+the change only the two group headers exposed an expanded state, so
+`getAllByRole(…{expanded: true})` meant "the open groups". Adding the attribute to
+a component rendered once per file silently widens that set, and the singular
+`getByRole` then *throws* instead of returning the group. The tests are correct
+before and after; only their meaning changed.
+**Fix:** when adding `aria-expanded` (or any role-defining attribute) to a
+repeated component, expect **every** existing role query in that suite to change
+meaning, and scope them rather than deleting them:
+
+```ts
+const group = screen.getByRole("button", { name: /Core logic/ });   // by name
+expect(group).toHaveAttribute("aria-expanded", "false");
+within(marked[0]).getByText("Critical");                            // or by container
+```
+
+Budget for it: `DiffTab.test.tsx` went 24 → 41 tests and ten assertions were
+re-pointed. **Grep the suite for `{ expanded` and for any bare `getByText` of a
+label the change also renders elsewhere, before writing the component** — that
+grep is what turns ten surprises into a checklist.
+
+## 2026-08-29 — `try/finally` cannot restore fake timers when the test itself times out; use `beforeEach`/`afterEach`
+
+**Rubric:** What Doesn't Work
+**Symptom:** one polling test used the tidy-looking idiom
+
+```ts
+it("stops polling once fresh", async () => {
+  vi.useFakeTimers();
+  try { /* … */ } finally { vi.useRealTimers(); }
+});
+```
+
+The test **timed out**, so the `finally` never ran, fake timers stayed installed
+process-wide, and **four later, unrelated tests in the same file went red** with
+failures that pointed nowhere near the real problem.
+**Cause:** vitest aborts a timed-out test at the runner level; the promise never
+settles, so nothing after `await` executes — `finally` included. `try/finally`
+protects against a *thrown* error, not against a test that never finishes. A
+fake-timer test is exactly the kind that hangs, because the thing that would
+advance it is the thing being mocked.
+**Fix:** put fake timers in the hooks, which vitest runs even when a test times
+out, and isolate them in their own `describe` so a hang cannot reach a sibling:
+
+```ts
+describe("polling (fake timers)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  // …
+});
+```
+
+Also use `fireEvent`, not `userEvent`, inside a fake-timer block — `userEvent`
+installs its own timer wiring and fights the mocked clock, which is a second way
+to produce the same hang. And mutation-check the polling assertion in **both**
+directions (make it poll always, then never): a polling test can pass because a
+timer never fired at all, not because the code is right.
+
+## 2026-08-28 — `aria-label` beats `title`, so an RTL test asserting `toHaveAttribute("title", …)` cannot fail on a broken accessible name
+
+**Rubric:** What Doesn't Work
+**Symptom:** `BriefCard`'s location control shipped with the raw `file:line` in
+`title` and a fixed instruction string in `aria-label`, so its accessible name
+was "Open this location in the Files changed tab" — the untruncated path never
+reached it. SPEC-02's AC-45 requires the opposite. The comment directly above the
+code asserted it was correct. **The test passed**, and was named
+`"…keeps the full value as the accessible name"`.
+**Cause:** two compounding mistakes. (1) In the accessible-name computation
+`aria-labelledby` > `aria-label` > native label > `title`, so setting both means
+`title` is *dead* for naming — it survives only as a mouse-hover tooltip.
+(2) The test asserted `expect(control).toHaveAttribute("title", full)` and
+located the element with `getByRole("button", { name: /Open this location/ })` —
+querying **by** the generic name it should have been rejecting. It therefore
+could not fail on this defect in any code state.
+**Fix:** put the value in `aria-label`; assert through the accessibility tree,
+never through `title`. Two adjacent sites in the same file were already right
+(`BriefCard.tsx` risk title and focus reason both use
+`aria-label={<raw value>}`), which is exactly why the odd one out survived review.
+
+```tsx
+aria-label={jumpLabel(location)}   // "<path>:<line> — Open this location…"
+title={location}                   // hover only; NOT the accessible name
+```
+
+```ts
+// asserts the real thing, and provably fails against the broken version
+screen.getByRole("button", { name: new RegExp(escapeRegex(`${LONG_PATH}:12`)) });
+expect(control).toHaveAccessibleName(`${LONG_PATH}:12 — Open this location…`);
+```
+
+**Generalise this.** Before trusting any test named for an accessibility
+criterion, ask what it would take for it to fail. If it queries by the same
+attribute it asserts, or asserts a DOM attribute where the criterion says
+"accessible name", it is decorative. A name may carry the value **plus** an
+action — that still satisfies "expose the untruncated value" and reads better to
+a screen-reader user than a bare path.
+
 ## 2026-08-27 — a shared component that resolves its own i18n namespace crashes a screen whose catalogue lacks it; and `?? []` cannot defend a list
 
 **Rubric:** What Doesn't Work

@@ -18,6 +18,105 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-08-29 — a green test can pass with its own mechanism DELETED, when the fixture satisfies the assertion by another route
+
+**Rubric:** What Works
+**Symptom:** SPEC-03's plan specified an NFR test to prove a read projection
+bounds a payload: derive, force-push, derive again, then assert the response size.
+The builder deleted the ordering term the whole projection rests on —
+`ORDER BY path, (head_sha = pull.head_sha) DESC, created_at DESC` — and **the test
+stayed green.**
+**Cause:** the fixture only ever moved the head *forward*, so the current head's
+row was also the newest, and `created_at DESC` alone produced the same answer.
+The assertion was true for a reason unrelated to the mechanism it was written to
+pin. The plan's own verification recipe was insufficient, and no reviewer would
+have caught it — the test looked right, named the right criterion, and passed.
+**Fix:** for any test that exists to pin a **mechanism** (an ordering term, a
+tie-break, a cap, a guard clause), delete the mechanism and confirm the test goes
+red *before* trusting it green. When it does not, the fixture is the problem —
+build one where the mechanism is the *only* thing that can produce the answer.
+Here: force-push **back** to an earlier head (a revert or reset), so the correct
+row is deliberately **older** than the wrong one:
+
+```
+derive at A → force-push to B, derive → force-push back to A
+              → A's row is older, and must still win
+```
+
+This is the same technique as the 2026-08-27 entry below, generalised past
+security properties: **that** entry is about an observable one step removed from
+the property; this one is about a fixture that reaches the right answer down the
+wrong path. Both are cheap — one edit, one run, one revert — and both found a
+real defect on their first use. Budget a mutation check per mechanism-pinning
+test, not per suite.
+
+## 2026-08-28 — `server/test/contracts.test.ts` is a second, invisible consumer of every `vendor/shared` shape; no "who reads this contract" audit finds it
+
+**Rubric:** What Doesn't Work
+**Symptom:** SPEC-02 retyped `Risk` in `server/src/vendor/shared/contracts/brief.ts`.
+Its plan's *Impact map* and NFR-11 both stated, in as many words, that the MCP
+five-tool assertion was **"the one real break"**, backed by "a grep across
+`server/src`, `client/src`, `mcp/src`, `reviewer-core/src` and `e2e/`". Mid-build
+a second suite failed:
+
+```
+FAIL test/contracts.test.ts > Intent / BlastRadius / Risks / PrHistory
+  "path": ["risks", 0, "end_line"], "message": "Required"
+```
+
+**Cause:** the audit grepped **`server/src`, not `server/test`**.
+`server/test/contracts.test.ts` builds literal fixtures for the shared shapes and
+parses them, so it consumes *every* contract while living outside every source
+tree anyone thinks to search. Nor do the tooling checks catch it:
+`.claude/skills/api-breaking-changes/check.mjs` extracts consumers from
+`client/src/**` `api.get/post` call sites, and `response-schema` reasons about
+what routes *return* — a test-only constructor is invisible to both. Its severity
+text even says the risk out loud ("breaking for anything that **constructs** this
+shape (fixtures, seeds, adapters)") without being able to point at this file.
+**Fix:** when changing anything under `vendor/shared/`, grep the **test trees
+too**:
+
+```sh
+grep -rnw '<TypeName>' server/src client/src mcp/src reviewer-core/src server/test client/src e2e
+```
+
+Fixing it forward is cheap and should strengthen, not loosen: update the fixture
+to the new shape **and** add an assertion that the new required fields are
+enforced (`expect(() => Schema.parse({ …missing… })).toThrow()`), which is what
+SPEC-02 did. Do not relax the fixture to make it pass. Related:
+`server/src/db/seed.ts` is the *other* place shapes get constructed — it happened
+to carry no `pr_brief` row here, but check it every time.
+
+## 2026-08-28 — a model-authored free-string `kind` reaching `FULL_FILE_KINDS` silently disables line anchoring; pass fresh literals, never a spread
+
+**Rubric:** Codebase Patterns
+**Symptom:** none yet — caught in design and guarded before it shipped. This is
+the latent shape, recorded so nobody reintroduces it.
+**Cause:** `reviewer-core/src/grounding.ts` exempts `kind` in
+`{secret_leak, lethal_trifecta, phantom, hook}` from hunk intersection, requiring
+only that the file appear in the diff (see `reviewer-core/insights.md`,
+2026-07-30). That set is safe while `kind` is **ours**. SPEC-02's brief pipeline
+made `kind` a field of a **model-authored** `Risk`, so a model emitting
+`kind: "phantom"` with a fabricated line range would have been exempted from
+anchoring and persisted as a grounded citation — defeating the citation gate
+entirely, from untrusted input, with no error anywhere.
+**Fix:** never hand a model-shaped object to the gate. Build **fresh literals**
+carrying only the geometry, plus an index to re-associate survivors:
+
+```ts
+groundCitations(
+  risks.map((r, i) => ({ file: r.file, start_line: r.start_line, end_line: r.end_line, i })),
+  diff,
+);   // NOT risks.map(r => ({ ...r }))  — a spread carries `kind` straight through
+```
+
+Re-attach `kind` **after** gating. `server/src/modules/brief/pipeline.ts`
+(`groundBrief`) is the worked example, with the warning also written on the
+contract field itself (`vendor/shared/contracts/brief.ts`) so it is visible at the
+point of temptation. **Generalise:** any allow-list keyed on a string that can
+originate from a model is a bypass unless the value is re-derived from trusted
+data first.
+
 ## 2026-08-27 — a subagent's self-reported deviation list beats the reviewers' findings; ask for it explicitly and read it first
 
 **Rubric:** What Works

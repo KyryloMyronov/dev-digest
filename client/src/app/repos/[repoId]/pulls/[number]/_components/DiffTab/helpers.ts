@@ -3,6 +3,8 @@
    the grouping, `GET /pulls/:id/reviews` for the findings) in, render-ready
    groups out. */
 import { parsePatch, type DiffAnnotation, type DiffAnnotations } from "@/components/diff-viewer";
+import { worstSeverity } from "@/components/diff-viewer/annotations";
+import type { PrFileSummariesResponse } from "@devdigest/shared";
 import type { FindingRecord, ReviewRecord } from "@devdigest/shared";
 import type { PrFile, Severity, SmartDiff, SmartDiffRole } from "@/lib/types";
 
@@ -87,6 +89,96 @@ export function currentFindings(reviews: ReviewRecord[]): FindingRecord[] {
  * stays shut however small it is, and a file with findings opens however big it
  * is — the reason to be on this tab is to look at those lines.
  */
+/**
+ * SPEC-03 AC-65/AC-68 — the WORST severity per new-side line, per file path.
+ *
+ * Built from the SAME `currentFindings(reviews)` set that produces the header
+ * badges (`buildAnnotations` calls this with its own `findings` argument), so
+ * the file badge and the line marks can never be computed from different review
+ * sets. That is AC-68, and it is what a future refactor must not undo.
+ *
+ * TWO SHIPPED ASYMMETRIES ARE INHERITED HERE ON PURPOSE — neither is a bug to
+ * fix in this function:
+ *
+ * 1. `SMART_DIFF_MAX_LINES_PER_FINDING` is SERVER-ONLY: the server truncates each
+ *    finding's range before emitting `finding_lines`. This map therefore expands
+ *    the FULL `start_line…end_line` range with NO cap of its own. A client map
+ *    NARROWER than the server's marked set would route real severities into
+ *    AC-67's neutral highlight — a wrong render, not a graceful one. Extra
+ *    entries beyond the server's marked lines are harmless: nothing reads a
+ *    severity for a line that was never marked.
+ * 2. `findingLinesByPath` (server) normalises a leading `./` or `/`; the
+ *    severities here are keyed on the RAW `f.file`, exactly as the shipped
+ *    path-level join in `buildAnnotations` already is. Deepening that join to
+ *    line granularity inherits the asymmetry. DO NOT "fix" it here — normalising
+ *    one side only would change which files get a header badge today. AC-67 is
+ *    the catch: an unresolvable severity renders the neutral highlight.
+ *
+ * A line carrying a CRITICAL and a SUGGESTION renders CRITICAL — `worstSeverity`
+ * is imported rather than its rank table redeclared. Dismissed findings are
+ * excluded, as they are for the badges.
+ */
+export function severitiesByLine(findings: FindingRecord[]): Map<string, Map<number, Severity>> {
+  const perPath = new Map<string, Map<number, Severity[]>>();
+  for (const f of findings) {
+    if (f.dismissed_at) continue;
+    if (f.start_line == null) continue; // a file-level finding marks no line
+    const end = Math.max(f.start_line, f.end_line ?? f.start_line);
+    let lines = perPath.get(f.file);
+    if (!lines) perPath.set(f.file, (lines = new Map<number, Severity[]>()));
+    for (let ln = f.start_line; ln <= end; ln++) {
+      const held = lines.get(ln);
+      if (held) held.push(f.severity);
+      else lines.set(ln, [f.severity]);
+    }
+  }
+
+  const out = new Map<string, Map<number, Severity>>();
+  for (const [path, lines] of perPath) {
+    const worst = new Map<number, Severity>();
+    for (const [ln, severities] of lines) {
+      const s = worstSeverity(severities);
+      if (s) worst.set(ln, s);
+    }
+    out.set(path, worst);
+  }
+  return out;
+}
+
+/**
+ * SPEC-03 — fold the PR's derived summaries into the annotations (AC-49, AC-50,
+ * AC-58).
+ *
+ * A summary is a property of the FILE, not of the view, so it is stamped on the
+ * annotation once and both the smart groups and the flat list render it — AC-50
+ * needs nothing view-specific.
+ *
+ * `stale` is the same comparison the polling stop-condition uses
+ * (`isSummaryFreshFor`); the label arrives RESOLVED because `FileCard` is shared
+ * and must not resolve its own i18n namespace.
+ */
+export function withSummaries(
+  annotations: DiffAnnotations,
+  data: PrFileSummariesResponse | null | undefined,
+  headSha: string | null | undefined,
+  staleLabel: string,
+): DiffAnnotations {
+  if (!data) return annotations;
+  const out: Record<string, DiffAnnotation> = { ...annotations };
+  for (const summary of data.summaries) {
+    out[summary.path] = {
+      ...out[summary.path],
+      summary: {
+        text: summary.summary,
+        headSha: summary.head_sha,
+        stale: !!headSha && summary.head_sha !== headSha,
+        staleLabel,
+      },
+    };
+  }
+  return out;
+}
+
 export function buildAnnotations(smart: SmartDiff, findings: FindingRecord[]): DiffAnnotations {
   const severitiesByPath = new Map<string, Severity[]>();
   for (const f of findings) {
@@ -96,6 +188,10 @@ export function buildAnnotations(smart: SmartDiff, findings: FindingRecord[]): D
     else severitiesByPath.set(f.file, [f.severity]);
   }
 
+  // AC-68 — the SAME `findings` set the badges above are built from. Computed
+  // here, in this function, so nothing can hand the line marks a different one.
+  const linesByPath = severitiesByLine(findings);
+
   const out: Record<string, DiffAnnotations[string]> = {};
   for (const group of smart.groups) {
     for (const file of group.files) {
@@ -103,6 +199,7 @@ export function buildAnnotations(smart: SmartDiff, findings: FindingRecord[]): D
       out[file.path] = {
         findingLines: file.finding_lines,
         severities: severitiesByPath.get(file.path) ?? [],
+        severitiesByLine: linesByPath.get(file.path) ?? new Map<number, Severity>(),
         ...(group.role === "boilerplate"
           ? { defaultOpen: false }
           : hasFindings
