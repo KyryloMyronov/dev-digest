@@ -25,6 +25,7 @@ export interface InsertAgent {
   strategy?: ReviewStrategy;
   ciFailOn?: CiFailOn;
   repoIntel?: boolean;
+  autoEval?: boolean;
   enabled?: boolean;
   createdBy?: string | null;
 }
@@ -39,6 +40,7 @@ export interface UpdateAgent {
   strategy?: ReviewStrategy;
   ciFailOn?: CiFailOn;
   repoIntel?: boolean;
+  autoEval?: boolean;
   enabled?: boolean;
 }
 
@@ -109,6 +111,7 @@ export class AgentsRepository {
         ...(values.strategy !== undefined ? { strategy: values.strategy } : {}),
         ...(values.ciFailOn !== undefined ? { ciFailOn: values.ciFailOn } : {}),
         ...(values.repoIntel !== undefined ? { repoIntel: values.repoIntel } : {}),
+        ...(values.autoEval !== undefined ? { autoEval: values.autoEval } : {}),
         enabled: values.enabled ?? true,
         version: INITIAL_AGENT_VERSION,
         createdBy: values.createdBy ?? null,
@@ -148,6 +151,10 @@ export class AgentsRepository {
         ...(patch.strategy !== undefined ? { strategy: patch.strategy } : {}),
         ...(patch.ciFailOn !== undefined ? { ciFailOn: patch.ciFailOn } : {}),
         ...(patch.repoIntel !== undefined ? { repoIntel: patch.repoIntel } : {}),
+        // `auto_eval` is an OPERATIONAL switch, not review config, so it is set
+        // here but deliberately absent from `isConfigChange`: putting it in the
+        // bump rule would make turning auto-eval ON immediately enqueue one.
+        ...(patch.autoEval !== undefined ? { autoEval: patch.autoEval } : {}),
         ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
         ...(configChanged ? { version: nextVersion } : {}),
       })
@@ -158,7 +165,11 @@ export class AgentsRepository {
     return row;
   }
 
-  private async snapshotVersion(row: AgentRow, version: number): Promise<void> {
+  private async snapshotVersion(
+    row: AgentRow,
+    version: number,
+    extra: { restored_from?: number } = {},
+  ): Promise<void> {
     const skills = await this.skillIdsForAgent(row.id);
     await this.db
       .insert(t.agentVersions)
@@ -174,9 +185,93 @@ export class AgentsRepository {
           ci_fail_on: row.ciFailOn,
           repo_intel: row.repoIntel,
           skills,
+          ...extra,
         },
       })
+      // Left as-is DELIBERATELY: a version may legitimately have no snapshot,
+      // and spec D-9 / AC-99 depend on that being possible. A bumped version is
+      // new, so this always inserts on the paths below.
       .onConflictDoNothing();
+  }
+
+  /**
+   * AC-80-AC-84 — a skill-link change is a CONFIG change.
+   *
+   * A separate method rather than a flag threaded through `update`: `update` is
+   * the server's most-exercised write path (`agents-versions.it.test.ts`,
+   * `skills.it.test.ts`, `skills-prompt.it.test.ts` all drive it), and its
+   * semantics stay byte-identical here.
+   *
+   * Call it AFTER the link mutation has landed, so `snapshotVersion` reads the
+   * NEW link set — the snapshot's whole purpose is to record what the agent
+   * looked like at that version, and `config_json.skills` is the half that just
+   * changed.
+   */
+  async bumpVersionForSkillChange(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<AgentRow | undefined> {
+    const existing = await this.getById(workspaceId, agentId);
+    if (!existing) return undefined;
+    const nextVersion = existing.version + 1;
+    const [row] = await this.db
+      .update(t.agents)
+      .set({ version: nextVersion })
+      .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.id, agentId)))
+      .returning();
+    if (row) await this.snapshotVersion(row, nextVersion);
+    return row;
+  }
+
+  /**
+   * AC-103 / AC-104 — write the restored config forward as a NEW version.
+   *
+   * Never a rewrite of history: `agent_versions` is immutable, and a restore
+   * that edited an old row would destroy the evidence the compare screen exists
+   * to show. The new snapshot carries `restored_from`, which is the only record
+   * that this version was a rollback rather than an edit.
+   */
+  async restoreVersion(
+    workspaceId: string,
+    agentId: string,
+    version: number,
+  ): Promise<AgentRow | undefined> {
+    const existing = await this.getById(workspaceId, agentId);
+    if (!existing) return undefined;
+    const snapshot = await this.getVersion(agentId, version);
+    if (!snapshot) return undefined;
+    // The snapshot is untyped jsonb by design (an older snapshot may carry a
+    // drifted shape), so the enum-typed columns are read through the contract's
+    // own unions rather than as bare strings.
+    const cfg = snapshot.configJson as {
+      provider?: Provider;
+      model?: string;
+      system_prompt?: string;
+      output_schema?: unknown;
+      strategy?: ReviewStrategy;
+      ci_fail_on?: CiFailOn;
+      repo_intel?: boolean;
+    };
+
+    const nextVersion = existing.version + 1;
+    const [row] = await this.db
+      .update(t.agents)
+      .set({
+        ...(cfg.provider !== undefined ? { provider: cfg.provider } : {}),
+        ...(cfg.model !== undefined ? { model: cfg.model } : {}),
+        ...(cfg.system_prompt !== undefined ? { systemPrompt: cfg.system_prompt } : {}),
+        ...(cfg.output_schema !== undefined
+          ? { outputSchema: (cfg.output_schema as object | null) ?? null }
+          : {}),
+        ...(cfg.strategy !== undefined ? { strategy: cfg.strategy } : {}),
+        ...(cfg.ci_fail_on !== undefined ? { ciFailOn: cfg.ci_fail_on } : {}),
+        ...(cfg.repo_intel !== undefined ? { repoIntel: cfg.repo_intel } : {}),
+        version: nextVersion,
+      })
+      .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.id, agentId)))
+      .returning();
+    if (row) await this.snapshotVersion(row, nextVersion, { restored_from: version });
+    return row;
   }
 
   // ---- agent_versions (immutable config snapshots) ------------------------

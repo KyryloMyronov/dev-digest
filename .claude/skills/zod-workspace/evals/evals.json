@@ -1,0 +1,35 @@
+{
+  "skill_name": "zod",
+  "evals": [
+    {
+      "id": 0,
+      "name": "signup-form-validation",
+      "prompt": "I'm building a signup form in a Next.js + TypeScript app. I need a Zod schema for the form data: `email` (required, valid email format), `password` (min 8 characters), and `confirmPassword` (must exactly match `password`). When validation fails, I want to show a field-level error message under each input rather than one generic error. Also export the inferred TypeScript type for the form data so I can type the `useState` and the submit handler. Write the schema and the parsing/error-handling code to a file called `signup.ts`.",
+      "expected_output": "A signup.ts file with a Zod object schema (email/password/confirmPassword), a refinement that checks confirmPassword === password with the error attached to the confirmPassword path, safeParse-based validation (not throwing parse()), field-keyed error extraction (e.g. via flatten() or issue.path) suitable for per-field display, and an exported z.infer type for the form data.",
+      "files": [],
+      "expectations": [
+        "Uses .safeParse(), not the throwing .parse(), to validate the form data",
+        "Validates email with z.string().email() (or equivalent email check)",
+        "Enforces a minimum password length of 8 via .min(8)",
+        "Checks confirmPassword against password via .refine() or .superRefine(), with the error path set to confirmPassword",
+        "Exposes validation errors keyed by field (e.g. via .flatten() or issue.path), not just a single generic message",
+        "Exports the inferred TypeScript type for the form data via z.infer<typeof schema>"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "api-endpoint-schema",
+      "prompt": "I'm adding a new Fastify REST endpoint `POST /api/products` that receives a JSON body from the client (parsed via `JSON.parse`, so it's untrusted). The body should have: `name` (string), `price` (number, must be > 0), `tags` (optional array of strings), and `status` (one of `draft`, `published`, `archived`). I need a Zod schema that validates this safely without throwing on bad input, plus the inferred TypeScript type for use in the route handler. Write it to a file called `product-schema.ts`.",
+      "expected_output": "A product-schema.ts file with a Zod object schema validating name (string), price (number, positive), tags (optional string array), and status (enum of exactly draft/published/archived), validated via safeParse (not throwing parse()) since the JSON is untrusted, plus an exported z.infer TypeScript type.",
+      "files": [],
+      "expectations": [
+        "Uses .safeParse(), not the throwing .parse(), given the input is untrusted JSON",
+        "price is validated as a positive number (e.g. z.number().positive() or .gt(0))",
+        "status is modeled as an enum/literal union restricted to exactly draft, published, archived",
+        "tags is an optional array of strings",
+        "name is validated as a string",
+        "Exports the inferred TypeScript type for the schema via z.infer<typeof schema>"
+      ]
+    }
+  ]
+}

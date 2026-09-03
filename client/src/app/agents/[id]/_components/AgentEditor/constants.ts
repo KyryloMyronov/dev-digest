@@ -8,17 +8,19 @@ export interface EditorTab {
 }
 
 /**
- * Editor tabs. Evals/Stats/CI arrive with their own lessons — `agents.json`
- * already carries their labels, deliberately without tabs behind them.
+ * Editor tabs. Stats/CI arrive with their own lessons — `agents.json` already
+ * carries their labels, deliberately without tabs behind them.
  *
- * SPEC-01 adds exactly ONE entry (`context`). `TAB_KEYS` below is derived from
- * this array, so the `?tab=` whitelist follows automatically; this array is the
- * only edit an added tab needs.
+ * SPEC-01 added exactly one entry (`context`); SPEC-04 adds exactly one more
+ * (`evals`, AC-59). `TAB_KEYS` below is derived from this array, so the `?tab=`
+ * whitelist follows automatically; this array is the only edit an added tab
+ * needs.
  */
 export const TABS: readonly EditorTab[] = [
   { key: "config", labelKey: "editor.tabs.config", icon: "Settings" },
   { key: "skills", labelKey: "editor.tabs.skills", icon: "Sparkles" },
   { key: "context", labelKey: "editor.tabs.context", icon: "FileText" },
+  { key: "evals", labelKey: "editor.tabs.evals", icon: "Gauge" },
 ];
 
 /**

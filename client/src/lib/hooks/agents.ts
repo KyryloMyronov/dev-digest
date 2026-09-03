@@ -3,7 +3,13 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import type { Agent, ModelInfo, Provider, ReviewStrategy } from "@devdigest/shared";
+import type {
+  Agent,
+  AgentVersion,
+  ModelInfo,
+  Provider,
+  ReviewStrategy,
+} from "@devdigest/shared";
 import { agentKeys, providerModelKeys } from "./keys";
 
 export function useAgents() {
@@ -78,6 +84,20 @@ export function useDeleteAgent() {
       qc.invalidateQueries({ queryKey: agentKeys.all });
       qc.removeQueries({ queryKey: agentKeys.detail(id) });
     },
+  });
+}
+
+/**
+ * SPEC-04 — the agent's config snapshots, newest version first.
+ *
+ * `snapshotVersion` is `onConflictDoNothing`, so a version may legitimately have
+ * NO row here. AC-99's "snapshot unavailable" notice is that case, not an error.
+ */
+export function useAgentVersions(agentId: string | null | undefined) {
+  return useQuery({
+    queryKey: agentKeys.versions(agentId),
+    queryFn: () => api.get<AgentVersion[]>(`/agents/${agentId}/versions`),
+    enabled: !!agentId,
   });
 }
 

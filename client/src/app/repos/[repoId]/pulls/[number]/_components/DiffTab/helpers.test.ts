@@ -7,8 +7,10 @@ import {
   diffLineIndex,
   findingInDiff,
   resolveGroups,
+  severitiesByLine,
   withFoldOverrides,
   withRoleTags,
+  withSummaries,
 } from "./helpers";
 
 /**
@@ -159,6 +161,143 @@ describe("buildAnnotations", () => {
     expect(ann["src/a.ts"]!.defaultOpen).toBe(true);
     // No findings and not boilerplate → the viewer's own size rule decides.
     expect(ann["src/b.ts"]!.defaultOpen).toBeUndefined();
+  });
+});
+
+/** A null where the contract promises a number — see the AC-67 test below. */
+const nullish = () => null as unknown as number;
+
+describe("severitiesByLine (SPEC-03 AC-65 / AC-66 / AC-68)", () => {
+  it("AC-65 — a line carrying a CRITICAL and a SUGGESTION resolves to CRITICAL", () => {
+    const map = severitiesByLine([
+      finding({ id: "f1", severity: "SUGGESTION", start_line: 4, end_line: 4 }),
+      finding({ id: "f2", severity: "CRITICAL", start_line: 4, end_line: 4 }),
+      finding({ id: "f3", severity: "WARNING", start_line: 4, end_line: 4 }),
+    ]);
+    expect(map.get("src/a.ts")!.get(4)).toBe("CRITICAL");
+  });
+
+  it("expands the FULL range with no client-side cap of its own", () => {
+    // `SMART_DIFF_MAX_LINES_PER_FINDING` is server-only; a client map narrower
+    // than the server's marked set would route real severities into AC-67's
+    // neutral highlight.
+    const map = severitiesByLine([finding({ start_line: 10, end_line: 400 })]);
+    const lines = map.get("src/a.ts")!;
+    expect(lines.size).toBe(391);
+    expect(lines.get(10)).toBe("WARNING");
+    expect(lines.get(400)).toBe("WARNING");
+    expect(lines.get(9)).toBeUndefined();
+  });
+
+  it("AC-67 — a dismissed finding resolves no severity, so its line stays neutral", () => {
+    const map = severitiesByLine([finding({ dismissed_at: "2026-08-29T00:00:00Z" })]);
+    expect(map.get("src/a.ts")).toBeUndefined();
+  });
+
+  it("AC-67 — a file-level finding (no start line) marks no line", () => {
+    // The contract types both line fields as `number`, but the shipped
+    // `findingInDiff` guards `start_line == null` all the same, and this
+    // function inherits that defensiveness — a payload from an older row can
+    // carry null. The cast is what lets the guard be TESTED rather than assumed.
+    const map = severitiesByLine([finding({ start_line: nullish(), end_line: nullish() })]);
+    expect(map.get("src/a.ts")).toBeUndefined();
+  });
+
+  it("an absent end_line marks the single start line", () => {
+    const map = severitiesByLine([finding({ start_line: 7, end_line: nullish() })]);
+    expect([...map.get("src/a.ts")!.keys()]).toEqual([7]);
+  });
+
+  it("keys on the RAW path — the ./ vs / asymmetry is inherited, not fixed here", () => {
+    // The server normalises a leading `./` when it emits `finding_lines`; the
+    // client keys severities on the raw `f.file`, exactly as the shipped
+    // path-level join does. Pinned so a future "fix" is a deliberate decision.
+    const map = severitiesByLine([finding({ file: "./src/a.ts" })]);
+    expect(map.get("./src/a.ts")).toBeDefined();
+    expect(map.get("src/a.ts")).toBeUndefined();
+  });
+
+  it("AC-68 — buildAnnotations computes the line marks from the same set as the badges", () => {
+    const superseded: ReviewRecord[] = [
+      {
+        id: "r-old",
+        pr_id: "pr-1",
+        agent_id: "a1",
+        run_id: null,
+        kind: "review",
+        verdict: "request_changes",
+        summary: null,
+        score: null,
+        model: null,
+        created_at: "2026-08-01T00:00:00Z",
+        findings: [finding({ id: "old", severity: "CRITICAL", review_id: "r-old" })],
+      } as ReviewRecord,
+      {
+        id: "r-new",
+        pr_id: "pr-1",
+        agent_id: "a1",
+        run_id: null,
+        kind: "review",
+        verdict: "approve",
+        summary: null,
+        score: null,
+        model: null,
+        created_at: "2026-08-02T00:00:00Z",
+        findings: [finding({ id: "new", severity: "SUGGESTION", review_id: "r-new" })],
+      } as ReviewRecord,
+    ];
+    const current = currentFindings(superseded);
+    const ann = buildAnnotations(SMART, current);
+    // The superseded CRITICAL is in NEITHER the badge nor the line mark.
+    expect(ann["src/a.ts"]!.severities).toEqual(["SUGGESTION"]);
+    expect(ann["src/a.ts"]!.severitiesByLine!.get(4)).toBe("SUGGESTION");
+  });
+
+  it("a file with no findings carries an empty map, not undefined", () => {
+    const ann = buildAnnotations(SMART, []);
+    expect(ann["src/b.ts"]!.severitiesByLine!.size).toBe(0);
+  });
+});
+
+describe("withSummaries (SPEC-03 AC-49 / AC-50 / AC-58)", () => {
+  const payload = (headSha: string) => ({
+    summaries: [
+      {
+        path: "src/a.ts",
+        summary: "Adds a token-bucket limiter keyed on bucketKey.",
+        head_sha: headSha,
+        provider: "openrouter",
+        model: "deepseek/deepseek-v4-flash",
+        tokens_in: 100,
+        tokens_out: 20,
+        cost_usd: 0.0001,
+        created_at: "2026-08-29T00:00:00Z",
+      },
+    ],
+    omitted_files: ["src/b.ts"],
+    selected: 1,
+    total: 2,
+  });
+
+  it("stamps the summary onto the file's annotation, leaving others alone", () => {
+    const ann = withSummaries(buildAnnotations(SMART, []), payload("head-1"), "head-1", "Stale");
+    expect(ann["src/a.ts"]!.summary!.text).toContain("token-bucket");
+    expect(ann["src/a.ts"]!.summary!.stale).toBe(false);
+    expect(ann["src/b.ts"]!.summary).toBeUndefined();
+    // The existing annotation survives the stamp.
+    expect(ann["src/a.ts"]!.findingLines).toEqual([4, 5]);
+  });
+
+  it("AC-58 — a summary for another head is stale, and its text is KEPT", () => {
+    const ann = withSummaries(buildAnnotations(SMART, []), payload("old-sha"), "head-1", "Stale");
+    expect(ann["src/a.ts"]!.summary!.stale).toBe(true);
+    expect(ann["src/a.ts"]!.summary!.text).toContain("token-bucket");
+    expect(ann["src/a.ts"]!.summary!.staleLabel).toBe("Stale");
+  });
+
+  it("is a no-op while the payload has not arrived", () => {
+    const base = buildAnnotations(SMART, []);
+    expect(withSummaries(base, undefined, "head-1", "Stale")).toBe(base);
   });
 });
 

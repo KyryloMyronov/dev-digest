@@ -8,6 +8,7 @@ import { Toggle, EmptyState } from "@devdigest/ui";
 import type { FindingRecord } from "@devdigest/shared";
 import { FindingCard } from "../FindingCard";
 import { useFindingAction } from "../../../../../../../lib/hooks/reviews";
+import { useCreateEvalCaseFromFinding } from "../../../../../../../lib/hooks/eval";
 import { KEY_TO_ACTION } from "./constants";
 import { visibleFindings } from "./helpers";
 import { s } from "./styles";
@@ -31,6 +32,8 @@ export function FindingsPanel({
 }) {
   const t = useTranslations("prReview");
   const action = useFindingAction();
+  // SPEC-04 — the owning view holds the mutation; the card stays presentational.
+  const evalCase = useCreateEvalCaseFromFinding();
   const [hideLow, setHideLow] = React.useState(false);
   const [focusIdx, setFocusIdx] = React.useState(0);
 
@@ -76,6 +79,8 @@ export function FindingsPanel({
               onAction={(act) => action.mutate({ findingId: f.id, action: act, prId })}
               onJumpToDiff={onJumpToDiff && (() => onJumpToDiff(f))}
               inDiff={findingInDiff ? findingInDiff(f) : undefined}
+              onTurnIntoEvalCase={() => evalCase.mutate(f.id)}
+              evalCasePending={evalCase.isPending}
             />
           ))
         )}

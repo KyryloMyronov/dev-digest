@@ -21,9 +21,10 @@ export interface NavGroup {
 /* Only routes that EXIST may be listed: NavItem renders a bare <Link> with no
    existence guard, so a row for a page that has not been built yet is a 404 the
    sidebar invites you to click. The design's GLOBAL group (Memory, Multi-Agent
-   Review, Agent Performance, CI Runs) and the Eval Dashboard row are
+   Review, Agent Performance, CI Runs) and the Onboarding Tour row are
    deliberately withheld until their routes land. Project Context has left that
-   list — `/repos/:repoId/context` ships with SPEC-01.
+   list — `/repos/:repoId/context` ships with SPEC-01 — and so has the Eval
+   Dashboard, whose `/eval` route ships with SPEC-04.
 
    `label` must stay byte-identical to the matching `shell.nav.<key>` message:
    the sidebar renders this literal while the command palette renders the
@@ -42,6 +43,9 @@ export const NAV: NavGroup[] = [
       { key: "skills", label: "Skills", icon: "Sparkles", href: "/skills", gKey: "s" },
       { key: "agents", label: "Agents", icon: "Cpu", href: "/agents", gKey: "a" },
       { key: "conventions", label: "Conventions", icon: "ListChecks", href: "/repos/:repoId/conventions", gKey: "c" },
+      // SPEC-04 AC-68. `e` is free — p x s a c , are taken. The label is
+      // byte-identical to `shell.nav.eval`, which IS the criterion.
+      { key: "eval", label: "Eval Dashboard", icon: "Gauge", href: "/eval", gKey: "e" },
     ],
   },
 ];
@@ -74,6 +78,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { keys: "g s", label: "Go to Skills", group: "Navigation" },
   { keys: "g a", label: "Go to Agents", group: "Navigation" },
   { keys: "g c", label: "Go to Conventions", group: "Navigation" },
+  { keys: "g e", label: "Go to Eval Dashboard", group: "Navigation" },
   { keys: "j / k", label: "Next / previous finding", group: "Findings" },
   { keys: "a", label: "Accept finding", group: "Findings" },
   { keys: "d", label: "Dismiss finding", group: "Findings" },

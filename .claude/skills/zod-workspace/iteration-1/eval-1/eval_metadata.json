@@ -1,0 +1,13 @@
+{
+  "eval_id": 1,
+  "eval_name": "api-endpoint-schema",
+  "prompt": "I'm adding a new Fastify REST endpoint `POST /api/products` that receives a JSON body from the client (parsed via `JSON.parse`, so it's untrusted). The body should have: `name` (string), `price` (number, must be > 0), `tags` (optional array of strings), and `status` (one of `draft`, `published`, `archived`). I need a Zod schema that validates this safely without throwing on bad input, plus the inferred TypeScript type for use in the route handler. Write it to a file called `product-schema.ts`.",
+  "assertions": [
+    "Uses .safeParse(), not the throwing .parse(), given the input is untrusted JSON",
+    "price is validated as a positive number (e.g. z.number().positive() or .gt(0))",
+    "status is modeled as an enum/literal union restricted to exactly draft, published, archived",
+    "tags is an optional array of strings",
+    "name is validated as a string",
+    "Exports the inferred TypeScript type for the schema via z.infer<typeof schema>"
+  ]
+}

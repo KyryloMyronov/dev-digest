@@ -1,0 +1,15 @@
+{
+  "expectations": [
+    {"text": "names_specific_heaviest_dependencies", "passed": true, "evidence": "Table of client's top deps with size + usage-check column; mcp's node_modules layout and duplicated esbuild sizes given concretely (9.4MB + 10MB)."},
+    {"text": "compares_versions_across_packages", "passed": true, "evidence": "States shared deps (zod/typescript/vitest/@types/node) declare identical ^-ranges across all 5 packages and resolve to identical versions - covers client and mcp as part of that claim, in prose rather than a dedicated table."},
+    {"text": "verifies_usage_before_calling_something_unused", "passed": true, "evidence": "Extensively grepped inspector (0 hits), mermaid (found via dynamic import after initial 0-hit false negative), lucide-react (explained per-icon-file size is not bloat), jszip, react-markdown/remark-gfm."},
+    {"text": "gives_an_actionable_next_step", "passed": true, "evidence": "Closes with a numbered 'Підсумок / що робити' action list."}
+  ],
+  "summary": {"passed": 4, "failed": 0, "total": 4, "pass_rate": 1.0},
+  "timing": {"executor_duration_seconds": 310.2, "total_tokens": 72479, "tool_uses": 21},
+  "notes": [
+    "Independently found the identical mcp pnpm/npm layout-mismatch root cause as the with_skill run, plus added a causality argument the with_skill run did not make (npm's internal .package-lock.json marker is timestamped before the committed pnpm lockfiles, supporting 'pnpm ran here after npm').",
+    "Explained why lucide-react is 36MB despite a single import site (one file per icon, for tree-shaking) - a nuance the with_skill report did not mention.",
+    "On this eval, baseline matched or slightly exceeded with_skill on investigative depth while using fewer tokens (72.5k vs 97.1k) and only marginally more wall-clock time."
+  ]
+}

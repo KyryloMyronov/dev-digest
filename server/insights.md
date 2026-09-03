@@ -14,6 +14,319 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-09-03 — the 120 s `JobRunner` default marks every real eval batch `failed` in `jobs` — long kinds must `register()` with their own `timeoutMs`
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** two manual eval batches (7 cases, `deepseek/deepseek-v4-flash` via
+OpenRouter) had their `jobs` rows go `failed` with
+`Operation timed out after 120000ms` exactly 120 s after `started_at`, while the
+studio kept showing the batch as `running` and `eval_runs` kept filling in. One
+case took 28–67 s, and `runBatch` runs cases SERIALLY, so seven cases is
+~6–8 minutes — no batch beyond two or three cases could ever finish inside the
+runner's default. The spec's own ceiling (`EVAL_BATCH_MAX_MS`, 900 s, AC-110)
+never got a chance to bind.
+**Cause:** `container.ts` builds `new JobRunner(db)` with defaults (120 s,
+`platform/jobs.ts`), and until today `register()` took no per-kind deadline, so
+`eval-batch` and `agent-version-eval` raced the same 120 s as `poll_repo`. The
+trigger's AC-92 comment even documented this as "ACCEPTED" — it is not, because
+it makes the `jobs` table lie about every batch that matters.
+**Fix:** `JobRunner.register(kind, handler, { timeoutMs })` now stores a per-kind
+override and `timeoutFor(kind)` reads it; both eval kinds register with
+`config.evalBatchMaxMs + EVAL_JOB_TIMEOUT_HEADROOM_MS` (`eval/constants.ts`,
+300 s of headroom because the wall clock is checked only BETWEEN cases). Any new
+kind whose honest duration is minutes must do the same — do not raise the
+runner-wide default, and do not duplicate the number: derive it from the knob
+the spec names. Pinned by `test/jobs-timeout.test.ts`, the "registers with the
+batch deadline" cases in `eval-service.test.ts` / `eval-trigger.test.ts`.
+Second gotcha found the same way: `pnpm dev` is `tsx watch`, so **saving any
+server file while a batch is in flight restarts the API and the batch reads
+`partial` forever** (the active-batch set is in-memory, by design). Do not edit
+server code while recording an eval demo.
+
+## 2026-09-03 — `docker exec devdigest-postgres …` without `--context rancher-desktop` reads a DIFFERENT database than the API — check `docker context ls` before trusting any SQL
+
+**Rubric:** Recurring Errors & Fixes
+**Supersedes:** 2026-08-29 — Colima's socket DID work for testcontainers here, contradicting the 2026-08-27 Rancher entry
+**Symptom:** `docker exec devdigest-postgres psql …` reported 15 applied
+migrations, `eval_cases` without its `expectation` column, 0 eval cases and 0
+judged findings — and a whole verification report was written on that basis —
+while the API on `:3001` was happily serving 18 migrations, a case, and accepted
+findings. `curl /repos` and the SQL even disagreed on the workspace id.
+**Cause:** this machine runs TWO container runtimes and each has a container
+named `devdigest-postgres`. `docker context ls` shows `colima` as the CURRENT
+context, so a bare `docker exec` lands in Colima's copy. Host port **5432 is
+forwarded by Rancher Desktop** (`lsof -iTCP:5432` shows an `ssh` process from
+`rancher-desktop/lima`), so `DATABASE_URL=…localhost:5432…` — the API,
+`db:migrate`, `db:seed` — all use Rancher's Postgres. The two are unrelated
+databases that happen to share a name. This settles the 2026-08-29 open
+question: the 2026-08-27 entry was about the host-port path (Rancher), and
+testcontainers is a separate matter (below).
+**Fix:** for anything the API sees, use
+`docker --context rancher-desktop exec devdigest-postgres psql -U devdigest -d devdigest …`
+(role is `devdigest`, not `postgres`). Sanity-check by comparing
+`select id from workspaces` against the `workspace_id` in `curl :3001/repos`
+before drawing a single conclusion from SQL. For **testcontainers**
+(`*.it.test.ts`) the Colima socket worked again today, 43/43 and 54/54:
+`export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock TESTCONTAINERS_RYUK_DISABLED=true`;
+without `DOCKER_HOST` it fails with
+`Could not find a working container runtime strategy`.
+
+## 2026-09-03 — `avg()` over per-case metric columns is a MACRO-average; a "share across the batch" criterion needs Σ/Σ, so persist the counts
+
+**Rubric:** What Doesn't Work
+**Symptom:** SPEC-04's first `batchAggregateQuery` (`server/src/modules/eval/repository.ts`) computed batch `recall`/`precision`/`citation_accuracy` as `avg(eval_runs.recall)` etc. over the per-case columns. Every unit test was green; the served number was wrong for any batch whose cases carry different numbers of expectations — a one-expectation case weighed the same as a ten-expectation one.
+**Cause:** AC-45/AC-50/AC-52 and plan D-6 define the batch metrics as ratios of sums (Σ matched ÷ Σ expected; Σ kept ÷ Σ (kept + dropped)). `avg()` of per-case ratios is a different quantity (macro-average), and the schema had no numerator/denominator columns to sum, so the ratio could not be "un-divided" at read time.
+**Fix:** the runner persists the scorer's tally in `eval_runs.actual_output.counts` (`PersistedActualOutput` in `repository.ts`: expected/actual/matched/noise/kept/dropped) and the aggregate sums those in SQL (`countSum`), still one grouped query. `server/test/eval.it.test.ts` "AC-45 / AC-50 / AC-52 (batch) — repository aggregate agrees with the scorer" pins the served record against hand-computed micro-averages AND against `scoreBatch(...)` over the same inputs. **Caveat:** on that fixture (per-case denominators 1, 2, 1, 1) `avg()` of the non-null per-case ratios coincides with Σ/Σ for all three metrics, so that test does NOT yet separate macro from micro — a fixture with one case of 3+ expectations and another of 1 would. The two formula copies (`scoring.ts:scoreBatch`, `repository.ts:toBatchRecord`) remain a known duplication — SPEC-04 follow-up.
+
+## 2026-09-03 — materialise a polled batch's rows BEFORE `jobs.enqueue`, or the studio's "running" state flickers on late
+
+**Rubric:** Codebase Patterns
+**Symptom:** with the per-case `eval_runs` rows inserted inside the `eval-batch` job handler, `GET /agents/:id/eval-runs` returned `[]` for as long as the `JobRunner` queue was busy; the studio, polling from the moment it got its 202, showed no batch at all, then a `running` one. `eval.it.test.ts`'s AC-40 concurrent-batch test failed on that ordering.
+**Cause:** the derived-status design (plan D-2: status = f(rows), no batch table) has no row to derive from until the seed insert runs, and a job handler runs whenever the queue reaches it — not at 202 time.
+**Fix:** seed the rows in the service on the request path (`EvalService.acceptAgentBatch`, before `enqueue`), and have the handler read them back (`repo.runsForBatch`). SPEC-04's own sequence diagram already drew it this way; the plan text said "runner" and was amended. Generalises to any 202+poll feature whose status is derived from child rows.
+
+## 2026-09-03 — a debounce marker cleared at job START is unpinnable against a mock provider; pause `p-queue` in the test instead of gating the provider
+
+**Rubric:** What Works
+**Symptom:** `agents-eval.it.test.ts` "NFR-17 / AC-87 — five rapid prompt edits queue at most ONE pending job" flaked: 3–5 jobs queued. With `MockLLMProvider` the `agent-version-eval` handler finishes in under a millisecond, so the pending marker was already cleared between two `PUT`s and each edit legitimately re-queued.
+**Cause:** the marker in `EvalTriggerService` (`server/src/modules/eval/trigger.ts`) clears when the job *finishes*; the test raced the scheduler by trying to slow the provider down.
+**Fix:** hold the queue, not the provider — `container.jobs` wraps `p-queue`; pause it before the five edits so the first job stays *pending* (the state AC-87 is about), assert exactly one job, then resume and `onIdle()`. Clearing on finish is also what makes AC-88's stale-payload skip reachable; do not move the clear to handler start to "fix" the test.
+
+## 2026-09-03 — `eval_runs.duration_ms` includes the provider call, and `MockLLMProvider` has no latency knob — NFR-1's timing test is honest only by that absence
+
+**Rubric:** Open Questions
+**Symptom:** none yet — latent. `eval.it.test.ts` "NFR-1 — every case of a 20-case stub batch costs the API at most 250 ms of its own work" asserts the slowest `duration_ms` ≤ 250 (observed ≈ 2 ms).
+**Cause:** `duration_ms` is `now() - caseStarted` around the whole case in `runner.ts`, model call included, and computed before the final `completeRun` write; NFR-1 excludes the model call and includes persistence. `MockLLMOptions` (`server/src/adapters/mocks.ts:44-56`) exposes no `delay`, so the mock's contribution is one microtask and the number happens to measure what the NFR means.
+**Fix:** if a future stub gains default latency, or a real provider is ever wired into that suite, the test fails for the wrong reason. The clean seam would be a `delay?: number` on `MockLLMOptions` set to `0` explicitly, or a separate overhead timer in the runner — both production changes, neither made.
+
+## 2026-08-29 — a stub that ignores the parameter it is handed makes that parameter's value unfalsifiable, and `toBe(THE_CONSTANT)` hides it
+
+**Rubric:** What Doesn't Work
+**Symptom:** `BRIEF_MAX_OUTPUT_TOKENS = 2_000` shipped through a full
+`plan-verifier` pass — 521 server tests, four clean typechecks, `lint:arch`
+clean, two `architecture-reviewer` passes at 0 blocking — and was wrong by 3×.
+The largest answer SPEC-02's schema and clamps permit measures **~7_750
+tokens**, so the cap could not hold a full-size answer from any model. Every
+live derivation came back truncated; the studio showed a dead button.
+
+**Cause:** two independent blind spots that only bite together.
+1. `StubLlm.completeStructured` (`test/brief-pipeline.test.ts`) recorded the
+   request and returned its fixture **without reading `req.maxTokens`**. A real
+   provider stops generating at the cap and hands back a truncated body. So no
+   test in the repo could go red for a cap that was too small — the failure mode
+   did not exist in the test world.
+2. The one assertion that touched the number was
+   `expect(llm.calls[0]!.maxTokens).toBe(2_000)` — a literal restating the
+   constant. It proves the value is passed, never that it suffices. A test whose
+   expected value is copied from the implementation cannot fail for the reason
+   you care about.
+
+Underneath both: the 2_000 was derived **backwards from a cost target** (SPEC-02
+NFR-4 — "a 2 000-token cap on output at $8.00/1M = $0.016"), and then "measured"
+by `estimateCost` over the stub's own declared token counts. A cost ceiling is
+not a correctness bound, and nobody ever measured how long an answer is.
+
+**Fix:** When a stub stands in for something that ENFORCES a limit, make the
+stub enforce it — `StubLlm` now truncates and throws when the serialised fixture
+exceeds `req.maxTokens`, with an explicit `ignoresMaxTokens` opt-out for AC-16,
+whose clamp exists precisely for a provider that overruns. Then assert the
+budget against a **generated worst case**, not a literal: `output token budget >
+BRIEF_MAX_OUTPUT_TOKENS can hold the largest answer the schema and clamps
+permit` builds the maximal answer from `MAX_BRIEF_RISKS` / `MAX_*_CHARS` and
+counts it with the real `TiktokenTokenizer`. Verify a new guard by reverting the
+constant to the broken value and watching it go red — this one reports `expected
+7753 to be less than or equal to 2000`. General rule: if a constant's value can
+change without any test changing colour, the constant is untested no matter how
+many tests name it.
+
+## 2026-08-29 — a REASONING model spends `max_tokens` on reasoning before emitting JSON, so a tight cap fails structured output with EMPTY content
+
+**Rubric:** Tool & Library Notes
+**Symptom:** `Derive brief` in the studio did nothing at all. `POST /pulls/:id/brief`
+returned `202`, the `brief.derive` job finished `status='done'`, and `pr_brief`
+stayed empty. Direct pipeline run:
+`Brief derivation unavailable (llm_failed): OpenRouter structured output failed
+schema validation for PrRiskBrief`. Replaying the pipeline's exact call shape
+4× against `deepseek/deepseek-v4-flash` gave `finish_reason=length` and
+`completion_tokens=2000` (exactly the cap) every time — 3 of 4 with **`content`
+of length 0** while still billing 2000 tokens, 1 truncated mid-JSON.
+
+**Cause:** `BRIEF_MAX_OUTPUT_TOKENS = 2_000`. Reasoning tokens are drawn from
+the same `max_tokens` budget as the answer, so a reasoning model can exhaust the
+cap before writing a single character of JSON. `deepseek/deepseek-v4-flash`
+lists `reasoning`, `reasoning_effort` and `include_reasoning` in its OpenRouter
+`supported_parameters` — it is one. `BRIEF_LLM_MAX_RETRIES = 0` (AC-14, one
+billed call) then means there is no repair attempt, so it is `llm_failed` on
+every derivation. The same prompt needs only ~1_700 tokens of actual answer,
+which is why raising the cap to `8_000` fixes it outright rather than merely
+making it likelier to fit.
+
+Two things made this look like a client bug for a long time: a failed derivation
+deliberately writes NO row (AC-11) and the job handler deliberately swallows the
+error (AC-10), so nothing server-side records the failure; and `BriefCard`'s only
+feedback is a `role="status"` region in an **`sr-only`** div, so the studio shows
+a 90 s spinner and then silently reverts to its empty state.
+
+**Fix:** Before picking a model for any structured-output feature, check
+`reasoning` / `reasoning_effort` in its OpenRouter `supported_parameters`
+(`curl -H "Authorization: Bearer $OPENROUTER_API_KEY"
+https://openrouter.ai/api/v1/models`). If present, size `max_tokens` at roughly
+4–5× the answer you expect, never at the answer's own size. Diagnose this class
+of failure by `finish_reason` and `completion_tokens`, not by the schema error —
+`finish_reason='length'` with `completion_tokens` equal to the cap is the tell,
+and empty `content` alongside a non-zero token bill means reasoning ate all of
+it. Note this is the mirror image of the root `insights.md` 2026-08-22 entry
+(omitting `max_tokens` 402s a low-credit account): both directions are traps, so
+set it explicitly AND size it for reasoning.
+
+## 2026-08-29 — a declared Zod `body:` schema REJECTS a body-less POST; the sibling `.nullable()` response lesson does not transfer
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** `POST /pulls/:id/file-summaries` with an optional body, declared as
+`schema: { body: FileSummaryDeriveInput }` where both fields are `.optional()`.
+A request with **no body and no content-type** returns 422:
+
+```
+{"error":{"code":"validation_error","message":"Request validation failed",
+ "details":[{"keyword":"invalid_type", … "message":"Expected object, received null"}]}}
+```
+
+Five tests went red from this one cause, and the expensive one was **not** the
+obvious one: the rate-limit test sent eleven body-less POSTs, so all eleven died
+at validation and never reached `@fastify/rate-limit`. That criterion would have
+shipped **unproven rather than failing** — green in a suite that never exercised
+the limiter.
+**Cause:** Fastify sets `req.body = null` for a POST with no body, and a bare
+`z.object` rejects `null`. The error message states the mechanism exactly.
+**Fix:** `body: MySchema.nullish()`. It accepts the body-less POST *and* keeps
+rejecting a malformed one — measured on all three options:
+
+| declaration | no body | `{}` | `{path: 42}` |
+|---|---|---|---|
+| `MySchema` | **422** | 202 | 422 |
+| `MySchema.nullish()` | **202** | 202 | **422** |
+| no `body:` + hand-parse | 202 | 202 | *silently ignored* |
+
+The handler's `req.body ?? {}` then copes with `null` unchanged. Prefer this over
+the hand-parse idiom `modules/brief/routes.ts` uses, which accepts a malformed
+body silently (that route still does — an unfixed follow-up, not a pattern to
+copy).
+
+**Read this together with the 2026-08-28 `.nullable()` entry below, because the
+pair is the lesson.** A declared Zod schema is safe on a **response** (`null`
+serialises fine) and unsafe on an **optional request body** (`null` fails
+validation). Written down, the two questions look identical; they resolve in
+opposite directions. Settle a body-less POST with a real `app.inject()` **before**
+building anything on the route.
+
+## 2026-08-29 — a multi-row `onConflictDoUpdate` must set from `excluded.*`; spreading the JS row writes ONE row's values over every conflicting row
+
+**Rubric:** What Doesn't Work
+**Symptom:** none observed — caught in review before it shipped. The trap is that
+it cannot be caught by a single-row test, and every existing example in this repo
+is single-row.
+**Cause:** the shipped idiom for a one-row upsert is
+`set: { ...row, createdAt: sql\`now()\` }` (`modules/brief/repository.ts:87-90`).
+That is correct *only* because `pr_brief` has exactly one row per PR. `set:`
+values are evaluated **once for the whole statement**, so applying the same
+spread to a multi-row insert writes the *last* JS row's `summary`, `tokens_in`
+and `cost_usd` onto **every** conflicting row — silent cross-contamination, no
+error, and a single-row fixture passes.
+**Fix:** in a multi-row upsert, set each column from the row Postgres is actually
+inserting:
+
+```ts
+.onConflictDoUpdate({
+  target: [t.prFileSummaries.prId, t.prFileSummaries.path, t.prFileSummaries.headSha],
+  set: {
+    summary:  sql`excluded.summary`,
+    tokensIn: sql`excluded.tokens_in`,
+    costUsd:  sql`excluded.cost_usd`,
+    createdAt: sql`now()`,        // still SQL, per the 2026-08-17 two-clocks entry
+  },
+})
+```
+
+Working example: `modules/file-summary/repository.ts`. Pin it with a test that
+upserts **two or more** rows and asserts each keeps *its own* value — a one-row
+test cannot distinguish the two idioms.
+
+## 2026-08-29 — Colima's socket DID work for testcontainers here, contradicting the 2026-08-27 Rancher entry
+
+**Rubric:** Open Questions
+**Symptom:** none yet — latent, and it is a contradiction rather than a failure.
+The 2026-08-27 entry below says the Colima socket does **not** fix
+`Could not find a working container runtime strategy` and that
+`DOCKER_HOST=unix://$HOME/.rd/docker.sock` is what works on this machine. In this
+session the **Colima** socket worked for **16/16** `.it.test.ts` files and 147
+tests, across four separate runs on 2026-08-28 and 2026-08-29:
+
+```sh
+export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
+```
+
+**Cause (hypothesis, not established):** the two commands need different things.
+`db:migrate` and `db:seed` reach **host port 5432**, forwarded by Rancher, so
+they hit Rancher's Postgres — which is the half the 2026-08-27 entry is about,
+and it stays true. testcontainers does **not** use host 5432: it creates its own
+container over whichever socket it can reach, so Colima suffices for it. If that
+is right, neither entry is wrong — they answer different questions, and the
+2026-08-27 wording ("point *both* variables at the Rancher socket") reads as
+covering both when it may only cover the migrate/seed path.
+**Fix:** unverified. Before trusting either entry, run
+`docker context ls` and try the suite; if Colima works, the entry below is
+narrower than it reads. **Do not delete or edit the 2026-08-27 entry on the
+strength of this** — it was written from a real failure and this session did not
+reproduce that failure. Whoever next hits a Docker problem here should settle
+which socket serves which command and supersede both.
+
+## 2026-08-28 — a top-level `.nullable()` response schema DOES serialise `null` — you do not need an envelope for "not computed yet"
+
+**Rubric:** What Works
+**Symptom:** none — this closes a risk that was carried as an open question
+through a whole spec and plan. SPEC-02 needed `GET /pulls/:id/brief` to answer
+"no brief has been derived" and nobody knew whether
+`response: { 200: PrBriefRecord.nullable() }` would survive
+`fastify-type-provider-zod`'s serializer, or whether the payload had to be
+wrapped as `{ brief: … | null }` to be safe.
+**Cause:** unfalsified caution. The 2026-08-2x entry below established that
+declared `response:` schemas work at all (the serializer half of
+`app.ts:64-65` was wired from the start and simply unused), but only for
+object-typed contracts. A **top-level** nullable was untested here.
+**Fix:** it works. `modules/brief/routes.ts` declares
+`response: { 200: PrBriefRecord.nullable() }` and `app.inject()` on a PR with no
+brief returns **HTTP 200 with the body literally `null`**
+(`test/brief-routes.test.ts`). No envelope, no `204`, no sentinel object.
+Prefer this over inventing a wrapper the client then has to unwrap — a nullable
+record is the honest shape for "this may not exist yet", and the client's
+`.nullish()` handling already copes.
+
+## 2026-08-28 — `@fastify/rate-limit` is inert under `NODE_ENV=test`, so a per-route `config.rateLimit` needs a non-standard app build to test at all
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** a route declares `config: { rateLimit: { max: 5, timeWindow: '1 minute' } }`
+and a test firing six requests at it asserts a `429` — which never arrives. Every
+request returns `202`. The route looks broken; it is not. Reading the route,
+the plugin registration and the config all show correct code, which is what makes
+this expensive.
+**Cause:** `server/AGENTS.md` documents the *fact* — "rate limiting is disabled
+under `NODE_ENV=test` so integration suites can hammer `inject()`" — but not its
+consequence: under the standard test app build the plugin is never registered, so
+a per-route `config.rateLimit` is dead configuration and **no test can observe
+it**. An acceptance criterion asserting a 429 is unverifiable by default.
+**Fix:** build the app once, in its own isolated `describe`, with the env flipped:
+
+```ts
+const app = await buildApp(loadConfig({ ...process.env, NODE_ENV: 'development' }));
+// now 5×202, then the 6th → 429
+```
+
+Keep it in a separate `describe` with its own `buildApp`/close so the rest of the
+suite keeps the fast, unthrottled app. `test/brief-routes.test.ts` is the worked
+example (SPEC-02 AC-9). If you write a rate-limit AC, write this build with it —
+otherwise the criterion ships green and unproven.
+
 ## 2026-08-27 — two Docker runtimes installed: `docker context` says Colima, but the socket that reaches host :5432 is Rancher Desktop's
 
 **Rubric:** Recurring Errors & Fixes

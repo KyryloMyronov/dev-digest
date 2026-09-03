@@ -111,6 +111,44 @@ export interface BlastRadiusView {
   endpoints: Array<{ endpoint: string; file: string; chain: string[] }>;
 }
 
+/**
+ * GET /pulls/:id/brief — projection of the SPEC-02 `PrBriefRecord` contract.
+ *
+ * A LOCAL projection, deliberately: this package must never import
+ * `@devdigest/shared` (see the file header — `shared` is aliased backwards into
+ * the server tree, so importing it would chain this package to the server's
+ * source). The endpoint serves `PrBriefRecord | null`, so the tool's own read
+ * is `PrBriefView | null`.
+ */
+export interface PrBriefView {
+  pr_id: string;
+  why?: { summary: string; sources: string[] } | null;
+  risks: Array<{
+    kind: string;
+    title: string;
+    explanation: string;
+    severity: 'CRITICAL' | 'WARNING' | 'SUGGESTION';
+    file: string;
+    start_line: number;
+    end_line: number;
+  }>;
+  focus?: {
+    entries: Array<{
+      file: string;
+      start_line?: number | null;
+      end_line?: number | null;
+      reason: string;
+    }>;
+  } | null;
+  grounding?: { kept: number; dropped: number } | null;
+  omitted_files: string[];
+  provider?: string | null;
+  model?: string | null;
+  cost_usd?: number | null;
+  head_sha?: string | null;
+  created_at?: string | null;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {

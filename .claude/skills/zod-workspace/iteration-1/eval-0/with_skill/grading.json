@@ -1,0 +1,11 @@
+{
+  "expectations": [
+    {"text": "Uses .safeParse(), not the throwing .parse(), to validate the form data", "passed": true, "evidence": "parseSignupForm calls signupSchema.safeParse(input) (line 61)"},
+    {"text": "Validates email with z.string().email() (or equivalent email check)", "passed": true, "evidence": "z.string(...).min(1,...).email('Please enter a valid email address') (lines 16-22)"},
+    {"text": "Enforces a minimum password length of 8 via .min(8)", "passed": true, "evidence": ".min(8, 'Password must be at least 8 characters') (line 29)"},
+    {"text": "Checks confirmPassword against password via .refine() or .superRefine(), with the error path set to confirmPassword", "passed": true, "evidence": ".refine((data) => data.password === data.confirmPassword, { message: ..., path: ['confirmPassword'] }) (lines 36-39)"},
+    {"text": "Exposes validation errors keyed by field (e.g. via .flatten() or issue.path), not just a single generic message", "passed": true, "evidence": "result.error.flatten() destructured into fieldErrors (line 64), typed via z.inferFlattenedErrors (lines 45-47)"},
+    {"text": "Exports the inferred TypeScript type for the form data via z.infer<typeof schema>", "passed": true, "evidence": "export type SignupFormData = z.infer<typeof signupSchema> (line 42)"}
+  ],
+  "summary": {"passed": 6, "failed": 0, "total": 6, "pass_rate": 1.0}
+}

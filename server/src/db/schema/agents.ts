@@ -29,6 +29,11 @@ export const agents = pgTable('agents', {
   // + file-rank note) injected into the prompt. Default on; the global
   // REPO_INTEL_ENABLED flag is the second gate (facade degrades when off).
   repoIntel: boolean('repo_intel').notNull().default(true),
+  // SPEC-04 AC-85 — re-run this agent's eval case set automatically when a
+  // prompt-, model-, provider-, strategy-, schema- or skill-affecting version
+  // bump lands. NOT NULL DEFAULT false is a non-volatile default, which
+  // Postgres 16 records as metadata with no table rewrite.
+  autoEval: boolean('auto_eval').notNull().default(false),
   enabled: boolean('enabled').notNull().default(true),
   version: integer('version').notNull().default(1),
   createdBy: uuid('created_by').references(() => users.id),

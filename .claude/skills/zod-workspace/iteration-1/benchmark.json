@@ -1,0 +1,100 @@
+{
+  "metadata": {
+    "skill_name": "zod",
+    "skill_path": "/Users/kyrylo.myronov/IdeaProjects/dev-digest-kyrmyr/.claude/skills/zod",
+    "executor_model": "claude-sonnet-5",
+    "analyzer_model": "claude-sonnet-5",
+    "timestamp": "2026-09-01T00:00:00Z",
+    "evals_run": [0, 1],
+    "runs_per_configuration": 1
+  },
+  "runs": [
+    {
+      "eval_id": 0,
+      "eval_name": "signup-form-validation",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {"pass_rate": 1.0, "passed": 6, "failed": 0, "total": 6, "time_seconds": 36.8, "tokens": 57870, "tool_calls": 12, "errors": 0},
+      "expectations": [
+        {"text": "Uses .safeParse(), not the throwing .parse(), to validate the form data", "passed": true, "evidence": "safeParse(input) at line 61"},
+        {"text": "Validates email with z.string().email() (or equivalent email check)", "passed": true, "evidence": ".email(...) at line 22"},
+        {"text": "Enforces a minimum password length of 8 via .min(8)", "passed": true, "evidence": ".min(8, ...) at line 29"},
+        {"text": "Checks confirmPassword against password via .refine() or .superRefine(), with the error path set to confirmPassword", "passed": true, "evidence": ".refine(..., { path: ['confirmPassword'] }) at lines 36-39"},
+        {"text": "Exposes validation errors keyed by field (e.g. via .flatten() or issue.path), not just a single generic message", "passed": true, "evidence": "result.error.flatten() at line 64, typed via z.inferFlattenedErrors"},
+        {"text": "Exports the inferred TypeScript type for the form data via z.infer<typeof schema>", "passed": true, "evidence": "SignupFormData = z.infer<typeof signupSchema> at line 42"}
+      ],
+      "notes": ["Also added a typed SignupFormFieldErrors via z.inferFlattenedErrors and a full usage example — beyond what was asked or asserted"]
+    },
+    {
+      "eval_id": 0,
+      "eval_name": "signup-form-validation",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {"pass_rate": 1.0, "passed": 6, "failed": 0, "total": 6, "time_seconds": 20.4, "tokens": 39422, "tool_calls": 2, "errors": 0},
+      "expectations": [
+        {"text": "Uses .safeParse(), not the throwing .parse(), to validate the form data", "passed": true, "evidence": "safeParse(formData) at line 35"},
+        {"text": "Validates email with z.string().email() (or equivalent email check)", "passed": true, "evidence": ".email(...) at line 8"},
+        {"text": "Enforces a minimum password length of 8 via .min(8)", "passed": true, "evidence": ".min(8, ...) at line 11"},
+        {"text": "Checks confirmPassword against password via .refine() or .superRefine(), with the error path set to confirmPassword", "passed": true, "evidence": ".refine(..., { path: ['confirmPassword'] }) at lines 16-19"},
+        {"text": "Exposes validation errors keyed by field (e.g. via .flatten() or issue.path), not just a single generic message", "passed": true, "evidence": "hand-rolled loop over result.error.issues keyed by issue.path[0], lines 41-47"},
+        {"text": "Exports the inferred TypeScript type for the form data via z.infer<typeof schema>", "passed": true, "evidence": "SignupFormData = z.infer<typeof signupSchema> at line 21"}
+      ],
+      "notes": ["Hand-rolled the field-error map instead of using flatten() — same result, more code"]
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "api-endpoint-schema",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {"pass_rate": 1.0, "passed": 6, "failed": 0, "total": 6, "time_seconds": 30.1, "tokens": 52280, "tool_calls": 10, "errors": 0},
+      "expectations": [
+        {"text": "Uses .safeParse(), not the throwing .parse(), given the input is untrusted JSON", "passed": true, "evidence": "CreateProductSchema.safeParse(json) at line 58, after try/caught JSON.parse"},
+        {"text": "price is validated as a positive number (e.g. z.number().positive() or .gt(0))", "passed": true, "evidence": ".finite(...).positive(...) at lines 26-28"},
+        {"text": "status is modeled as an enum/literal union restricted to exactly draft, published, archived", "passed": true, "evidence": "z.enum(['draft','published','archived']) at line 8"},
+        {"text": "tags is an optional array of strings", "passed": true, "evidence": "z.array(z.string()...).optional() at line 29"},
+        {"text": "name is validated as a string", "passed": true, "evidence": "z.string()... at line 24"},
+        {"text": "Exports the inferred TypeScript type for the schema via z.infer<typeof schema>", "passed": true, "evidence": "CreateProductInput = z.infer<typeof CreateProductSchema> at line 36"}
+      ],
+      "notes": ["Also used .strict() to reject unknown keys and bounded string/array lengths — beyond what was asked or asserted"]
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "api-endpoint-schema",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {"pass_rate": 1.0, "passed": 6, "failed": 0, "total": 6, "time_seconds": 14.7, "tokens": 38822, "tool_calls": 2, "errors": 0},
+      "expectations": [
+        {"text": "Uses .safeParse(), not the throwing .parse(), given the input is untrusted JSON", "passed": true, "evidence": "productSchema.safeParse(json) at line 28, after try/caught JSON.parse"},
+        {"text": "price is validated as a positive number (e.g. z.number().positive() or .gt(0))", "passed": true, "evidence": "z.number().positive() at line 5"},
+        {"text": "status is modeled as an enum/literal union restricted to exactly draft, published, archived", "passed": true, "evidence": "z.enum([...]) at line 7"},
+        {"text": "tags is an optional array of strings", "passed": true, "evidence": "z.array(z.string()).optional() at line 6"},
+        {"text": "name is validated as a string", "passed": true, "evidence": "z.string() at line 4"},
+        {"text": "Exports the inferred TypeScript type for the schema via z.infer<typeof schema>", "passed": true, "evidence": "Product = z.infer<typeof productSchema> at line 10"}
+      ],
+      "notes": ["Minimal but fully correct — no strict(), no length bounds, no custom error map"]
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {"mean": 1.0, "stddev": 0.0, "min": 1.0, "max": 1.0},
+      "time_seconds": {"mean": 33.45, "stddev": 4.74, "min": 30.1, "max": 36.8},
+      "tokens": {"mean": 55075, "stddev": 3953, "min": 52280, "max": 57870}
+    },
+    "without_skill": {
+      "pass_rate": {"mean": 1.0, "stddev": 0.0, "min": 1.0, "max": 1.0},
+      "time_seconds": {"mean": 17.55, "stddev": 4.03, "min": 14.7, "max": 20.4},
+      "tokens": {"mean": 39122, "stddev": 424, "min": 38822, "max": 39422}
+    },
+    "delta": {
+      "pass_rate": "+0.00",
+      "time_seconds": "+15.90",
+      "tokens": "+15953"
+    }
+  },
+  "notes": [
+    "Both configurations passed 100% of assertions on both evals — Sonnet 5 already applies safeParse/refine-with-path/enum/z.infer correctly without the skill on these two prompts, so this assertion set doesn't discriminate correctness for this model.",
+    "The skill's effect here is qualitative, not pass-rate: with_skill added .strict() unknown-key rejection and bounded string/array lengths on the product schema, and a typed field-error map (z.inferFlattenedErrors) plus a fuller usage example on the signup form — none of which the assertions were written to check.",
+    "with_skill runs cost roughly 46% more wall-clock time and 41% more tokens on average (33.5s / 55.1k tokens vs 17.6s / 39.1k tokens), driven by reading multiple reference files (9 for eval-0, 7 for eval-1) before writing code.",
+    "Both test prompts are fairly 'textbook' Zod usage; a harder case (discriminated unions, z.lazy() recursion, coerce/transform/preprocess chains) would likely separate the two configurations on correctness rather than just polish."
+  ]
+}

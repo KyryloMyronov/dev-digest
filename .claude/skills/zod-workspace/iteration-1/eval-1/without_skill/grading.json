@@ -1,0 +1,11 @@
+{
+  "expectations": [
+    {"text": "Uses .safeParse(), not the throwing .parse(), given the input is untrusted JSON", "passed": true, "evidence": "productSchema.safeParse(json) inside parseProduct (line 28), after JSON.parse is itself try/caught (lines 21-26)"},
+    {"text": "price is validated as a positive number (e.g. z.number().positive() or .gt(0))", "passed": true, "evidence": "z.number().positive() (line 5)"},
+    {"text": "status is modeled as an enum/literal union restricted to exactly draft, published, archived", "passed": true, "evidence": "z.enum(['draft', 'published', 'archived']) (line 7)"},
+    {"text": "tags is an optional array of strings", "passed": true, "evidence": "z.array(z.string()).optional() (line 6)"},
+    {"text": "name is validated as a string", "passed": true, "evidence": "z.string() (line 4)"},
+    {"text": "Exports the inferred TypeScript type for the schema via z.infer<typeof schema>", "passed": true, "evidence": "export type Product = z.infer<typeof productSchema> (line 10)"}
+  ],
+  "summary": {"passed": 6, "failed": 0, "total": 6, "pass_rate": 1.0}
+}

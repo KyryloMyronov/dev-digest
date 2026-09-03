@@ -1,0 +1,12 @@
+{
+  "expectations": [
+    {"text": "has_mermaid_diagram", "passed": true, "evidence": "Report opens with a fenced ```mermaid graph LR``` block showing all 5 packages and the shared/contract relationships."},
+    {"text": "covers_all_5_packages", "passed": true, "evidence": "Per-package inventory sections exist for client, server, mcp, reviewer-core, e2e, each with a total size figure."},
+    {"text": "has_per_dependency_size_table", "passed": true, "evidence": "Full markdown table per package with Dependency/Type/Declared range/Installed version/Size columns, every direct dependency listed individually."},
+    {"text": "distinguishes_declared_range_from_installed_version", "passed": true, "evidence": "Every table row has separate 'Declared range' (e.g. ^15.1.3) and 'Installed version' (e.g. 15.5.19) columns; text explicitly notes when they coincide vs diverge."},
+    {"text": "ends_with_ranked_recommendations", "passed": true, "evidence": "Section 4 is a P0-P5 priority table plus a closing summary paragraph."},
+    {"text": "sizes_look_measured_not_guessed", "passed": true, "evidence": "Sizes are precise non-round figures (152.3 MB, 21.5 MB, 0.04 MB) consistent with real du output, including an explicit attributed-vs-total gap breakdown per package."}
+  ],
+  "summary": {"passed": 6, "failed": 0, "total": 6, "pass_rate": 1.0},
+  "timing": {"executor_duration_seconds": 322.3, "total_tokens": 84309, "tool_uses": 20}
+}

@@ -85,6 +85,35 @@ export const agentKeys = {
   detail: (id: Id) => ["agent", id] as const,
   /** The agent's ordered skill links — invalidated by every attach/toggle/reorder. */
   skills: (id: Id) => ["agent-skills", id] as const,
+  /**
+   * SPEC-04 AC-96/AC-99 — the agent's `agent_versions` snapshots, newest first.
+   * Its own root, like `contextKeys.doc`: a restore must invalidate this AND the
+   * detail key explicitly, because the two share no prefix.
+   */
+  versions: (id: Id) => ["agent-versions", id] as const,
+};
+
+// ---- Eval (SPEC-04) --------------------------------------------------------
+
+/**
+ * SPEC-04. Read the TUPLES, not the header above: these prefixes deliberately
+ * do NOT nest, so a mutation must invalidate the broad key and the specific one
+ * EXPLICITLY (`client/insights.md` 2026-08-17). `useUpdateAgent`'s pairing is
+ * the pattern to copy, not the comment at the top of this file.
+ */
+export const evalKeys = {
+  /** The workspace dashboard — `GET /eval`. */
+  workspace: ["eval-workspace"] as const,
+  /** One agent's dashboard — `GET /eval/agents/:agentId`. */
+  agent: (agentId: Id) => ["eval-agent", agentId] as const,
+  /** An agent's eval cases — `GET /agents/:id/eval-cases`. */
+  cases: (agentId: Id) => ["eval-cases", agentId] as const,
+  /** One case — `GET /eval-cases/:id`. Its own root, like `contextKeys.doc`. */
+  case: (caseId: Id) => ["eval-case", caseId] as const,
+  /** An agent's batches — `GET /agents/:id/eval-runs`. The POLLED one (AC-66). */
+  batches: (agentId: Id) => ["eval-batches", agentId] as const,
+  /** The "run all agents" cost estimate — `GET /eval/estimate` (AC-72). */
+  estimate: ["eval-estimate"] as const,
 };
 
 // ---- Skills ----------------------------------------------------------------
@@ -110,6 +139,8 @@ export const conventionKeys = {
 // ---- Reviews, runs, traces, comments ---------------------------------------
 
 export const reviewKeys = {
+  /** Every per-PR reviews list — `byPr` nests under it, so a prefix sweep works. */
+  all: ["reviews"] as const,
   byPr: (prId: Id) => ["reviews", prId] as const,
 };
 
@@ -117,6 +148,19 @@ export const reviewKeys = {
     must be invalidated explicitly by this exact key, never by a prefix sweep. */
 export const intentKeys = {
   byPr: (prId: Id) => ["pr-intent", prId] as const,
+};
+
+/** SPEC-02 — the derived PR brief. Shares no prefix with reviewKeys/runKeys/
+    intentKeys, so it must be invalidated by this exact key, never by a sweep. */
+export const briefKeys = {
+  byPr: (prId: Id) => ["pr-brief", prId] as const,
+};
+
+/** SPEC-03 — the PR's derived per-file summaries. Shares no prefix with
+    pullKeys/reviewKeys/intentKeys/briefKeys, so it must be invalidated by this
+    exact key, never by a prefix sweep. */
+export const fileSummaryKeys = {
+  byPr: (prId: Id) => ["pr-file-summaries", prId] as const,
 };
 
 export const runKeys = {

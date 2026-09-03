@@ -1,6 +1,15 @@
 import { z } from 'zod';
 import { Verdict, Finding } from './findings.js';
-import { EvalRun, EvalOwnerKind, Conformance, Provider, CiFailOn } from './knowledge.js';
+import {
+  EvalRun,
+  EvalOwnerKind,
+  Conformance,
+  Provider,
+  CiFailOn,
+  EvalExpectation,
+  EvalExpectedFinding,
+} from './knowledge.js';
+import { EvalBatchRecord } from './eval-agent.js';
 
 /**
  * A4 — Eval / CI / Compose / Conformance API contracts (L06).
@@ -24,10 +33,17 @@ export const EvalCaseInput = z.object({
   input_diff: z.string().default(''),
   input_files: z.unknown().nullish(),
   input_meta: z.unknown().nullish(),
-  expected_output: z.unknown(),
+  // AC-19 + AC-109: parsed against EvalExpectedFinding[], capped at 20 here as
+  // at every other use site. Narrowed from z.unknown() by SPEC-04.
+  expected_output: z.array(EvalExpectedFinding).max(20),
+  // AC-25 — `.default()` keeps the field optional on the wire and present in
+  // the parsed value, so an omitted expectation persists as `must_find`.
+  expectation: EvalExpectation.default('must_find'),
   notes: z.string().nullish(),
 });
 export type EvalCaseInput = z.infer<typeof EvalCaseInput>;
+/** Caller-facing input type — `.default()` fields stay optional (web hooks). */
+export type EvalCaseInputBody = z.input<typeof EvalCaseInput>;
 
 /** A persisted eval run row (one execution of a case), returned by the API. */
 export const EvalRunRecord = z.object({
@@ -42,6 +58,17 @@ export const EvalRunRecord = z.object({
   citation_accuracy: z.number().nullable(),
   duration_ms: z.number().int().nullable(),
   cost_usd: z.number().nullable(),
+  // SPEC-04 additions. EVERY new field on this already-shipped, multi-duty
+  // shape is `.nullish()` whatever it means (root insights.md 2026-08-03): a
+  // pre-SPEC-04 row carries none of them, and a caller that never sets one must
+  // still parse.
+  agent_id: z.string().nullish(),
+  batch_id: z.string().nullish(),
+  agent_version: z.number().int().nullish(),
+  expectation: EvalExpectation.nullish(),
+  expected_count: z.number().int().nullish(),
+  actual_count: z.number().int().nullish(),
+  error: z.string().nullish(),
 });
 export type EvalRunRecord = z.infer<typeof EvalRunRecord>;
 
@@ -85,6 +112,16 @@ export const EvalDashboard = z.object({
   trend: z.array(EvalTrendPoint),
   recent_runs: z.array(EvalRunRecord),
   alert: z.string().nullable(),
+  // SPEC-04 additions, each `.nullish()` on an already-shipped shape.
+  // `batches` is what /eval/agents/:agentId actually draws (spec D-29);
+  // `alert_metric` + `alert_delta` are AC-74 — the studio composes the English
+  // sentence from them through next-intl (plan D-14), so `alert` above stays a
+  // server-side convenience nothing in the studio reads.
+  batches: z.array(EvalBatchRecord).nullish(),
+  alert_metric: z.string().nullish(),
+  alert_delta: z.number().nullish(),
+  agent_name: z.string().nullish(),
+  agent_version: z.number().int().nullish(),
 });
 export type EvalDashboard = z.infer<typeof EvalDashboard>;
 

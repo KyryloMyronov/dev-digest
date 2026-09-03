@@ -33,6 +33,13 @@ export const FEATURE_MODELS: FeatureModelDef[] = [
     defaultModel: "gpt-4.1",
   },
   {
+    id: "file_summary",
+    label: "PR Diff · File summaries",
+    description: "Writes a one-line summary of each changed file in a PR.",
+    defaultProvider: "openrouter",
+    defaultModel: "deepseek/deepseek-v4-flash",
+  },
+  {
     id: "conformance",
     label: "Conformance",
     description: "Checks a PR against the project spec.",

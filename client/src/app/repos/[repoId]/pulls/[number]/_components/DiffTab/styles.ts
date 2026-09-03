@@ -35,6 +35,46 @@ export const s = {
     whiteSpace: "nowrap",
   } satisfies CSSProperties,
   groupMeta: { fontSize: 12, color: "var(--text-muted)" } satisfies CSSProperties,
+  // ---- SPEC-03 · the reviewer-ordered chrome --------------------------------
+  /** AC-41 — the count + aggregate line, a SIBLING under the section label:
+   *  `SectionLabel` has no slot beneath it and `vendor/**` is do-not-touch. */
+  aggregate: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    marginTop: -8,
+    marginBottom: 12,
+    fontSize: 12,
+    color: "var(--text-secondary)",
+  } satisfies CSSProperties,
+  /** AC-48 — the one sentence separating this ordering from the brief's focus. */
+  vsBrief: {
+    fontSize: 12,
+    lineHeight: "17px",
+    color: "var(--text-secondary)",
+    marginBottom: 12,
+  } satisfies CSSProperties,
+  /**
+   * AC-71 / AC-73 — the status region. `--text-secondary`, never
+   * `--text-muted`: 5.98:1 vs 3.15:1 on `--bg-elevated` in dark.
+   */
+  statusRegion: {
+    fontSize: 12,
+    lineHeight: "17px",
+    color: "var(--text-secondary)",
+  } satisfies CSSProperties,
+  /** AC-55 — the read failed; an explicit state with a retry control. */
+  summariesError: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "10px 12px",
+    borderRadius: 7,
+    border: "1px solid var(--warn)",
+    background: "var(--warn-bg)",
+    fontSize: 12,
+    color: "var(--text-primary)",
+  } satisfies CSSProperties,
   splitCard: {
     display: "flex",
     flexDirection: "column",

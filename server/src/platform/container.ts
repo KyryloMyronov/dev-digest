@@ -33,6 +33,10 @@ import type { RepoIntel } from '../modules/repo-intel/types.js';
 import { RepoIntelService } from '../modules/repo-intel/service.js';
 import type { ProjectContext } from '../modules/project-context/types.js';
 import { ProjectContextService } from '../modules/project-context/service.js';
+import type { EvalTrigger } from '../modules/eval/types.js';
+import { EvalService } from '../modules/eval/service.js';
+import { EvalTriggerService } from '../modules/eval/trigger.js';
+import type { Logger } from './logger.js';
 import { type DepGraph, DepCruiseGraph } from '../adapters/depgraph/index.js';
 import { type Tokenizer, TiktokenTokenizer } from '../adapters/tokenizer/index.js';
 
@@ -60,6 +64,12 @@ export interface ContainerOverrides {
   /** repo-intel T3 adapters — only the indexer pipeline reads these. */
   depgraph?: DepGraph;
   tokenizer?: Tokenizer;
+  /**
+   * SPEC-04 phase 2 — the auto-eval trigger facade. Injectable so a suite can
+   * prove AC-91's degradation (a bump completing with nothing registered) and
+   * NFR-17's debounce without a real queue.
+   */
+  evalTrigger?: EvalTrigger;
 }
 
 export class Container {
@@ -87,6 +97,21 @@ export class Container {
   private _depgraph?: DepGraph;
   private _tokenizer?: Tokenizer;
   private _modelCatalog?: ModelCatalog;
+  private _evalService?: EvalService;
+  private _evalTrigger?: EvalTrigger;
+
+  /**
+   * The structured logger services resolved from here should use. `app.ts`
+   * replaces it with Fastify's Pino instance the moment the container exists;
+   * the console fallback is what a container built outside an HTTP app (a test,
+   * a CLI) gets, so a service never has to guard against a missing logger.
+   */
+  log: Logger = {
+    info: () => {},
+    warn: (o, m) => console.warn(m ?? '', o),
+    error: (o, m) => console.error(m ?? '', o),
+    debug: () => {},
+  };
 
   constructor(config: AppConfig, db: Db, private overrides: ContainerOverrides = {}) {
     this.config = config;
@@ -159,6 +184,41 @@ export class Container {
     if (this.overrides.projectContext) return this.overrides.projectContext;
     this._projectContext ??= new ProjectContextService(this);
     return this._projectContext;
+  }
+
+  /**
+   * SPEC-04 — the eval module's service, resolved HERE rather than constructed
+   * per plugin.
+   *
+   * It owns the in-memory active-batch registry that derives `EvalBatchRecord`'s
+   * `running` status (plan D-2), and the phase-2 trigger runs its batches
+   * through the same loop. Two instances would mean two registries: AC-40 would
+   * stop refusing a concurrent batch, and a batch started by an auto-eval would
+   * never read `running` on the poll the studio is watching.
+   */
+  get evalService(): EvalService {
+    return (this._evalService ??= new EvalService(this, this.log));
+  }
+
+  /**
+   * SPEC-04 phase 2 — `container.evalTrigger`, the seam `agents` calls after a
+   * version bump so it never learns that an eval module exists.
+   *
+   * Same posture as `repoIntel`: it DEGRADES instead of throwing. A bump with no
+   * `agent-version-eval` handler registered still completes (AC-91).
+   */
+  get evalTrigger(): EvalTrigger {
+    if (this.overrides.evalTrigger) return this.overrides.evalTrigger;
+    if (!this._evalTrigger) {
+      const trigger = new EvalTriggerService(this, this.log, this.evalService);
+      // Registering the `agent-version-eval` handler is composition, so it
+      // happens where every other concretion is wired. An OVERRIDDEN trigger
+      // registers nothing, which is precisely how AC-91's "no handler
+      // registered" state is reachable from a test.
+      trigger.registerJobHandler();
+      this._evalTrigger = trigger;
+    }
+    return this._evalTrigger;
   }
 
   /** Import-graph builder (dependency-cruiser). T3 indexer pipeline only. */

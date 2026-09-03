@@ -28,7 +28,40 @@
       "cost": "Cost"
     },
     "pass": "pass",
-    "fail": "fail"
+    "fail": "fail",
+    "workspaceTitle": "Eval Dashboard",
+    "workspaceSubtitle": "Every agent in this workspace, ranked by its latest batch.",
+    "agentsHeading": "Agents",
+    "batchesHeading": "Recent batches",
+    "empty": "No eval cases in this workspace yet. Open an agent's Evals tab to create the first one.",
+    "emptyCta": "Go to Agents",
+    "runAll": "Run all agents",
+    "runAllConfirmTitle": "Run every agent's eval cases?",
+    "runAllConfirmBody": "{agents, plural, one {# agent} other {# agents}} · {cases, plural, one {# case} other {# cases}} · estimated {cost}",
+    "runAllConfirm": "Run all",
+    "runAllCancel": "Cancel",
+    "costUnknown": "cost unknown",
+    "neverRun": "never run",
+    "caseCount": "{count, plural, one {# case} other {# cases}}",
+    "noMetrics": "—",
+    "loadError": "Could not load the eval dashboard.",
+    "agentColumn": "Agent",
+    "casesColumn": "Cases",
+    "statusColumn": "Status",
+    "batchColumn": "Batch",
+    "versionColumn": "Version",
+    "triggerColumn": "Trigger",
+    "status": {
+      "running": "Running",
+      "complete": "Complete",
+      "partial": "Partial",
+      "failed": "Failed"
+    },
+    "agentDisabled": "off",
+    "trigger": {
+      "manual": "Manual",
+      "version-change": "Version change"
+    }
   },
   "caseEditor": {
     "newCase": "New eval case",
@@ -55,7 +88,13 @@
     "invalidJson": "invalid JSON",
     "lastRunPassed": "Last run passed",
     "lastRunFailed": "Last run failed",
-    "resultSummary": "recall {recall}% · precision {precision}% · citation {citation}% · {duration}s"
+    "resultSummary": "recall {recall}% · precision {precision}% · citation {citation}% · {duration}s",
+    "expectedCount": "expected {count}",
+    "actualCount": "got {count}",
+    "schemaError": "The expected output was rejected: {path}",
+    "runOnSave": "Run on save",
+    "loadError": "Could not load this eval case.",
+    "backToEvals": "Back to evals"
   },
   "evalsTab": {
     "metricsTitle": "Eval metrics",
@@ -71,7 +110,14 @@
     "run": "Run",
     "running": "Running…",
     "edit": "Edit",
-    "delete": "Delete"
+    "delete": "Delete",
+    "countsSummary": "expected {expected} · got {actual}",
+    "noDeltas": "Deltas appear once this agent has two batches.",
+    "batchesHeading": "Recent batches",
+    "runAria": "Run this agent's eval cases",
+    "runStarted": "Eval batch started.",
+    "runFinished": "Eval batch finished.",
+    "createFirst": "Create the first case"
   },
   "page": {
     "crumbSkillsLab": "Skills Lab",
@@ -80,5 +126,41 @@
     "crumbEvals": "Evals",
     "crumbNewCase": "New case",
     "crumbEvalCase": "Eval case"
+  },
+  "agentPage": {
+    "title": "{name} · evals",
+    "back": "All agents",
+    "trendTitle": "Metric trend",
+    "trendEmpty": "No batches yet — the trend appears after the first run.",
+    "trendAxisLabel": "Batch {ordinal} of {total}",
+    "batchOrdinal": "Batch {ordinal}",
+    "loadError": "Could not load this agent's evals.",
+    "alert": "{metric} fell by {delta} against the previous batch.",
+    "alertLabel": "Regression",
+    "compare": "Compare",
+    "compareHint": "Select exactly two batches to compare."
+  },
+  "compare": {
+    "title": "Comparing batch {before} with batch {after}",
+    "before": "Before",
+    "after": "After",
+    "delta": "Delta",
+    "promptDiff": "System prompt diff",
+    "promptDiffEmpty": "Both batches ran the same agent version — no prompt change.",
+    "snapshotUnavailable": "Snapshot unavailable for one of these versions, so the prompt cannot be diffed.",
+    "truncated": "Truncated to the first 8,000 characters of each side.",
+    "lineAdded": "added",
+    "lineRemoved": "removed",
+    "lineUnchanged": "unchanged",
+    "restore": "Restore v{version}",
+    "restoreConfirmTitle": "Restore v{version}?",
+    "restoreConfirmBody": "This writes the older config forward as a new version. Nothing in the history is overwritten.",
+    "restoreConfirm": "Restore",
+    "restoreCancel": "Cancel"
+  },
+  "expectation": {
+    "label": "Expectation",
+    "must_find": "must find",
+    "must_not_flag": "must not flag"
   }
 }

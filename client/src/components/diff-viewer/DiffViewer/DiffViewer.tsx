@@ -9,6 +9,7 @@ import React from "react";
 import { useTranslations } from "next-intl";
 import type { PrFile } from "@/lib/types";
 import { type DiffCommentApi } from "../comments";
+import type { DiffSummaryApi } from "../summary";
 import type { DiffAnnotations, DiffReveal } from "../annotations";
 import { s } from "../styles";
 import { FileCard } from "../FileCard";
@@ -17,11 +18,14 @@ export function DiffViewer({
   files,
   commenting,
   annotations,
+  summary,
   onFileOpenChange,
   reveal,
 }: {
   files: PrFile[];
   commenting?: DiffCommentApi;
+  /** SPEC-03 — forwarded UNCHANGED to every card, exactly as `commenting` is. */
+  summary?: DiffSummaryApi;
   /** Per-path review overlay; a path with no entry renders as a plain file. */
   annotations?: DiffAnnotations;
   /** Reports a manual fold/unfold of one file (session-sticky fold state). */
@@ -45,6 +49,7 @@ export function DiffViewer({
           file={f}
           commenting={commenting}
           annotation={annotations?.[f.path]}
+          summary={summary}
           onOpenChange={onFileOpenChange}
           reveal={reveal && reveal.path === f.path ? reveal : null}
         />

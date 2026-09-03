@@ -3,6 +3,8 @@ import settings from './settings/routes.js';
 import repos from './repos/routes.js';
 import pulls from './pulls/routes.js';
 import blast from './blast/routes.js';
+import brief from './brief/routes.js';
+import fileSummary from './file-summary/routes.js';
 import polling from './polling/routes.js';
 import workspace from './workspace/routes.js';
 import agents from './agents/routes.js';
@@ -11,6 +13,7 @@ import reviews from './reviews/routes.js';
 import repoIntel from './repo-intel/routes.js';
 import conventions from './conventions/routes.js';
 import projectContext from './project-context/routes.js';
+import evalModule from './eval/routes.js';
 
 /**
  * Module registry. Each feature module is a Fastify plugin in
@@ -30,6 +33,8 @@ export const modules: Record<string, FastifyPluginAsync> = {
   repos,
   pulls,
   blast,
+  brief,
+  fileSummary,
   polling,
   workspace,
   agents,
@@ -38,4 +43,7 @@ export const modules: Record<string, FastifyPluginAsync> = {
   repoIntel,
   conventions,
   projectContext,
+  // SPEC-04 — `eval` is a reserved word, so the import is aliased; the KEY is
+  // what names the module in the registry.
+  eval: evalModule,
 };

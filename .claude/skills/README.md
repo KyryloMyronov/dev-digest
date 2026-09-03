@@ -21,12 +21,13 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [api-response-changes](api-response-changes/SKILL.md) | Full-stack | Detect response-payload breaks — fields removed or flipped optional/nullable, swapped response types, `.partial()` on a served contract |
 | [response-schema](response-schema/SKILL.md) | Full-stack | Diff response payloads from the *consumer's* side — the studio's `api.get<T>()` generic as the declaration, with nested field paths and served/unserved severity |
 | [source-scan](source-scan/SKILL.md) | Shared | **Library, nothing to run.** The one git-ref I/O + bracket-aware TS/JS scanner the three API skills are built on |
+| [dependencies-checker](dependencies-checker/SKILL.md) | Shared | Audit installed dependency sizes, cross-package version drift, and outdated majors across all five packages; produces a diagram + prioritized report |
 
 All skills above except `engineering-insights`, `api-breaking-changes`,
-`api-response-changes`, `response-schema` and `source-scan` are vendored from
-upstream and hash-locked by [`skills-lock.json`](../../skills-lock.json); local
-edits to them get overwritten on sync. Those five are authored here and are not
-locked.
+`api-response-changes`, `response-schema`, `source-scan` and
+`dependencies-checker` are vendored from upstream and hash-locked by
+[`skills-lock.json`](../../skills-lock.json); local edits to them get
+overwritten on sync. Those six are authored here and are not locked.
 
 `spec-creator/` is **not a skill** — it is a subagent
 ([`../agents/spec-creator.md`](../agents/spec-creator.md)). The folder survives

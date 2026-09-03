@@ -28,10 +28,19 @@ const PRICING: Record<string, Price> = {
   // must be confirmed against openrouter.ai/models before relying on cost.
   // Unknown slugs fall through to null cost (explicitly flagged), which is safe.
   'z-ai/glm-4.7-flash': { in: 0, out: 0 }, // free baseline for evals
-  // Confirmed against openrouter.ai/api/v1/models on 2026-08-17. The floating
-  // alias is cheaper than the pinned `-0731` snapshot (0.14/0.28), which is what
-  // this entry used to carry.
-  'deepseek/deepseek-v4-flash': { in: 0.077, out: 0.154 },
+  // Confirmed against openrouter.ai/api/v1/models on 2026-08-28 (SPEC-03):
+  // prompt 0.000000088606 / completion 0.000000177212 per token. The 2026-08-17
+  // figures this entry used to carry (0.077 / 0.154) were 15.1% LOW.
+  //
+  // BLAST RADIUS, stated because it is wider than the feature that changed it:
+  // `review_intent`, `onboarding` and `file_summary` all default to this same
+  // slug (`contracts/platform.ts`), so their persisted `cost_usd` moves too —
+  // in the MORE ACCURATE direction. Author-accepted (SPEC-03 plan D-5).
+  //
+  // Do NOT substitute a neighbouring slug: `~-latest` is 0.03/0.10, `-0731` is
+  // 0.07/0.14, `-vision-exp` is 0.22/0.66. The repo keys on the bare slug and
+  // that is correct — the floating alias is what the feature models resolve.
+  'deepseek/deepseek-v4-flash': { in: 0.088606, out: 0.177212 },
   'z-ai/glm-4.7-flashx': { in: 0.15, out: 0.4 },
   'minimax/minimax-m2.5': { in: 0.3, out: 1.2 },
   'z-ai/glm-5.1': { in: 0.6, out: 2.2 },

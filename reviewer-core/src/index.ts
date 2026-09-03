@@ -26,7 +26,21 @@ export {
 } from './prompt.js';
 
 // Citation grounding — the mandatory mechanical gate for diff findings.
-export { groundFindings, groundingSummary, type GroundingResult } from './grounding.js';
+//
+// SPEC-02 adds `groundCitations`, the citation-shaped gate, so a claim that is
+// not a `Finding` (a risk, a review-focus entry) goes through the SAME gate
+// rather than a reimplementation. `buildLineIndex` and `rangeIntersects` stay
+// off the barrel deliberately: `groundCitations` is the whole seam, which is
+// what keeps the gate shared rather than recomposed per caller.
+export {
+  groundFindings,
+  groundCitations,
+  groundingSummary,
+  type GroundingResult,
+  type Citation,
+  type CitationGroundingResult,
+  type GroundCitationsOptions,
+} from './grounding.js';
 
 // Structured-output helpers (Zod → JSON Schema + parse-with-repair).
 export {

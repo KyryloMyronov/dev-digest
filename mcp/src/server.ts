@@ -4,6 +4,7 @@ import { registerRunAgent } from './tools/run-agent.js';
 import { registerGetFindings } from './tools/get-findings.js';
 import { registerGetConventions } from './tools/get-conventions.js';
 import { registerGetBlastRadius } from './tools/get-blast-radius.js';
+import { registerGetPrBrief } from './tools/get-pr-brief.js';
 
 export function buildServer(): McpServer {
   // No `instructions`: the field is advisory, some clients ignore it, and
@@ -14,5 +15,6 @@ export function buildServer(): McpServer {
   registerGetFindings(server);
   registerGetConventions(server);
   registerGetBlastRadius(server);
+  registerGetPrBrief(server);
   return server;
 }

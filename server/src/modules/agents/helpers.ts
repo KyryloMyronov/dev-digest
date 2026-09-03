@@ -1,6 +1,7 @@
 import type { Agent, AgentVersion, CiFailOn, Provider, ReviewStrategy } from '@devdigest/shared';
 import { AgentVersionConfig } from '@devdigest/shared';
 import type { AgentRow, AgentVersionRow } from './repository.js';
+import type { EvalTriggerField } from '../eval/types.js';
 
 /**
  * Pure helpers for the agents module — DB row ⇄ DTO mapping and the
@@ -23,6 +24,7 @@ export function toAgentDto(row: AgentRow): Agent {
     strategy: row.strategy as ReviewStrategy,
     ci_fail_on: row.ciFailOn as CiFailOn,
     repo_intel: row.repoIntel,
+    auto_eval: row.autoEval,
   };
 }
 
@@ -83,4 +85,38 @@ export function isConfigChange(
     (patch.repoIntel !== undefined && patch.repoIntel !== existing.repoIntel) ||
     patch.outputSchema !== undefined
   );
+}
+
+
+/**
+ * SPEC-04 AC-85 — which ALLOW-LISTED config fields a patch actually changed.
+ *
+ * The list is exhaustive and is the whole rule (plan D-13): a bump that touched
+ * only `ci_fail_on`, `repo_intel`, `name` or `description` still bumps the
+ * version and is still snapshotted (AC-84) — it just returns `[]` here and
+ * therefore enqueues nothing. `auto_eval` is absent on purpose too: it is an
+ * operational switch, and including it would make turning auto-eval ON its own
+ * first trigger.
+ *
+ * Pure, and deliberately separate from `isConfigChange`, which answers a
+ * different question (did the version bump at all).
+ */
+export function changedTriggerFields(
+  existing: Pick<AgentRow, 'provider' | 'model' | 'systemPrompt' | 'strategy' | 'outputSchema'>,
+  patch: ConfigChangePatch,
+): EvalTriggerField[] {
+  const changed: EvalTriggerField[] = [];
+  if (patch.systemPrompt !== undefined && patch.systemPrompt !== existing.systemPrompt)
+    changed.push('system_prompt');
+  if (patch.model !== undefined && patch.model !== existing.model) changed.push('model');
+  if (patch.provider !== undefined && patch.provider !== existing.provider)
+    changed.push('provider');
+  if (patch.strategy !== undefined && patch.strategy !== existing.strategy)
+    changed.push('strategy');
+  if (
+    patch.outputSchema !== undefined &&
+    JSON.stringify(patch.outputSchema ?? null) !== JSON.stringify(existing.outputSchema ?? null)
+  )
+    changed.push('output_schema');
+  return changed;
 }

@@ -28,6 +28,32 @@ function invalidateFindings(qc: QueryClient, prId: string | null | undefined): v
   qc.invalidateQueries({ queryKey: pullKeys.smartDiff(prId) });
 }
 
+type FindingDto = ReviewRecord["findings"][number];
+
+/**
+ * Write the finding the server just returned straight into every cached reviews
+ * list that holds it. Accept / Dismiss then flips the card — and enables
+ * "Turn into eval case" (SPEC-04 AC-6) — on the tick the request resolves,
+ * instead of waiting on the refetch that `invalidateFindings` schedules. With
+ * no `prId` the patch sweeps `reviewKeys.all`, so a caller that forgot the id
+ * still gets a fresh card rather than a stale one until reload.
+ */
+function patchCachedFinding(
+  qc: QueryClient,
+  prId: string | null | undefined,
+  finding: FindingDto,
+): void {
+  qc.setQueriesData<ReviewRecord[]>(
+    { queryKey: prId ? reviewKeys.byPr(prId) : reviewKeys.all },
+    (old) =>
+      old?.map((review) =>
+        review.findings.some((f) => f.id === finding.id)
+          ? { ...review, findings: review.findings.map((f) => (f.id === finding.id ? finding : f)) }
+          : review,
+      ),
+  );
+}
+
 // ---- Active (in-flight) runs — server-side source of truth ----
 export interface ActiveRun {
   run_id: string;
@@ -163,12 +189,14 @@ export function useFindingAction() {
       reply?: string;
       prId?: string;
     }) =>
-      api.post<{ finding: ReviewRecord["findings"][number]; memoryId?: string }>(
+      api.post<{ finding: FindingDto; memoryId?: string }>(
         `/findings/${findingId}/${action}`,
         reply ? { reply } : undefined,
       ),
-    onSuccess: (_d, { prId }) => {
+    onSuccess: (data, { prId }) => {
+      patchCachedFinding(qc, prId, data.finding);
       if (prId) invalidateFindings(qc, prId);
+      else qc.invalidateQueries({ queryKey: reviewKeys.all });
     },
   });
 }

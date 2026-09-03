@@ -1,0 +1,135 @@
+{
+  "metadata": {
+    "skill_name": "dependencies-checker",
+    "skill_path": ".claude/skills/dependencies-checker",
+    "executor_model": "claude-sonnet-5",
+    "analyzer_model": "claude-sonnet-5",
+    "timestamp": "2026-09-01T20:20:00Z",
+    "evals_run": ["full-audit-request", "slow-install-symptom", "zod-upgrade-planning"],
+    "runs_per_configuration": 1
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "eval_name": "full-audit-request",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {"pass_rate": 1.0, "passed": 6, "failed": 0, "total": 6, "time_seconds": 322.3, "tokens": 84309, "tool_calls": 20, "errors": 0},
+      "expectations": [
+        {"text": "has_mermaid_diagram", "passed": true, "evidence": "Fenced mermaid graph LR with all 5 packages."},
+        {"text": "covers_all_5_packages", "passed": true, "evidence": "All 5 named with concrete size figures."},
+        {"text": "has_per_dependency_size_table", "passed": true, "evidence": "Full per-package tables, every direct dependency listed."},
+        {"text": "distinguishes_declared_range_from_installed_version", "passed": true, "evidence": "Separate columns throughout."},
+        {"text": "ends_with_ranked_recommendations", "passed": true, "evidence": "P0-P5 priority table + summary."},
+        {"text": "sizes_look_measured_not_guessed", "passed": true, "evidence": "Precise non-round figures with explicit attributed-vs-total gaps."}
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "full-audit-request",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {"pass_rate": 0.833, "passed": 5, "failed": 1, "total": 6, "time_seconds": 381.7, "tokens": 93911, "tool_calls": 36, "errors": 0},
+      "expectations": [
+        {"text": "has_mermaid_diagram", "passed": true, "evidence": "flowchart TB with styled subgraphs."},
+        {"text": "covers_all_5_packages", "passed": true, "evidence": "All 5 named with sizes."},
+        {"text": "has_per_dependency_size_table", "passed": false, "evidence": "Only a per-package total table plus bullet-list top-5s, no full per-dependency table."},
+        {"text": "distinguishes_declared_range_from_installed_version", "passed": true, "evidence": "Explicit installed-version table and prose distinguishing declared range."},
+        {"text": "ends_with_ranked_recommendations", "passed": true, "evidence": "P0/P1/P2 numbered list."},
+        {"text": "sizes_look_measured_not_guessed", "passed": true, "evidence": "Precise figures plus extra real measurements (audit, .next size, git log)."}
+      ],
+      "notes": [
+        "Conflated patch-level version differences (tsx, @types/node) with 'real drift found' - overstates a normal, expected consequence of 5 independent lockfiles.",
+        "Ran real npm/pnpm audit and surfaced vulnerability counts, missing engines field, and mcp allowBuilds inconsistency - extras the with_skill run did not produce."
+      ]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "slow-install-symptom",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {"pass_rate": 1.0, "passed": 4, "failed": 0, "total": 4, "time_seconds": 295.9, "tokens": 97057, "tool_calls": 19, "errors": 0},
+      "expectations": [
+        {"text": "names_specific_heaviest_dependencies", "passed": true, "evidence": "Full size tables for client and mcp."},
+        {"text": "compares_versions_across_packages", "passed": true, "evidence": "Cross-package table incl. client and mcp, majorDrift=false."},
+        {"text": "verifies_usage_before_calling_something_unused", "passed": true, "evidence": "Grepped mermaid, lucide-react, inspector before judging."},
+        {"text": "gives_an_actionable_next_step", "passed": true, "evidence": "P0-P5 table."}
+      ],
+      "notes": ["Correctly found the mcp pnpm/npm layout mismatch as root cause - same finding as baseline."]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "slow-install-symptom",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {"pass_rate": 1.0, "passed": 4, "failed": 0, "total": 4, "time_seconds": 310.2, "tokens": 72479, "tool_calls": 21, "errors": 0},
+      "expectations": [
+        {"text": "names_specific_heaviest_dependencies", "passed": true, "evidence": "Concrete sizes for client and mcp, incl. duplicated esbuild forensic detail."},
+        {"text": "compares_versions_across_packages", "passed": true, "evidence": "Claims identical resolution across all 5 incl. client/mcp, in prose."},
+        {"text": "verifies_usage_before_calling_something_unused", "passed": true, "evidence": "Extensive grep incl. mermaid dynamic-import discovery, lucide-react icon-file explanation."},
+        {"text": "gives_an_actionable_next_step", "passed": true, "evidence": "Numbered action list."}
+      ],
+      "notes": [
+        "Matched with_skill on every expectation while using ~25% fewer tokens.",
+        "Added a causality argument (npm marker timestamp vs pnpm lockfile timestamp) the with_skill run did not make."
+      ]
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "zod-upgrade-planning",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {"pass_rate": 1.0, "passed": 4, "failed": 0, "total": 4, "time_seconds": 151.9, "tokens": 58378, "tool_calls": 12, "errors": 0},
+      "expectations": [
+        {"text": "reports_actual_installed_zod_version_per_package", "passed": true, "evidence": "Table, all 4 resolve to 3.25.76."},
+        {"text": "does_not_falsely_claim_drift", "passed": true, "evidence": "Explicit 'Нема drift.'"},
+        {"text": "separately_notes_declared_range_difference", "passed": true, "evidence": "mcp's differing range flagged as cosmetic/future-risk only."},
+        {"text": "covers_other_outdated_majors_beyond_zod", "passed": true, "evidence": "typescript, vitest, openai, next, octokit, testcontainers covered."}
+      ],
+      "notes": ["Found the fastify-type-provider-zod peer-dependency blocker on server unprompted.", "Fastest and cheapest run of all six."]
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "zod-upgrade-planning",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {"pass_rate": 1.0, "passed": 4, "failed": 0, "total": 4, "time_seconds": 281.7, "tokens": 67320, "tool_calls": 14, "errors": 0},
+      "expectations": [
+        {"text": "reports_actual_installed_zod_version_per_package", "passed": true, "evidence": "Table with lockfile cross-verification."},
+        {"text": "does_not_falsely_claim_drift", "passed": true, "evidence": "Explicit 'Version drift ... відсутній.'"},
+        {"text": "separately_notes_declared_range_difference", "passed": true, "evidence": "Called cosmetic, secondary."},
+        {"text": "covers_other_outdated_majors_beyond_zod", "passed": true, "evidence": "Extensive per-package tables, more exhaustive than with_skill's."}
+      ],
+      "notes": [
+        "Independently found the same fastify-type-provider-zod blocker and went deeper: full peerDependency compatibility matrix across its 4.0.2/5.x/6.x/7.0.0 releases.",
+        "More thorough than with_skill on the single most important finding in this eval, while still cheaper/faster than with_skill's own eval-1 and eval-2 runs."
+      ]
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {"mean": 1.0, "stddev": 0.0, "min": 1.0, "max": 1.0},
+      "time_seconds": {"mean": 256.7, "stddev": 74.884, "min": 151.9, "max": 322.3},
+      "tokens": {"mean": 79914.667, "stddev": 16093.454, "min": 58378, "max": 97057}
+    },
+    "without_skill": {
+      "pass_rate": {"mean": 0.944, "stddev": 0.079, "min": 0.833, "max": 1.0},
+      "time_seconds": {"mean": 324.533, "stddev": 42.064, "min": 281.7, "max": 381.7},
+      "tokens": {"mean": 77903.333, "stddev": 11513.409, "min": 67320, "max": 93911}
+    },
+    "delta": {
+      "pass_rate": "+0.056",
+      "time_seconds": "-67.8",
+      "tokens": "+2011"
+    }
+  },
+  "notes": [
+    "The only expectation that discriminated between configurations across all 3 evals was 'has_per_dependency_size_table' in eval 1 - baseline gave top-5 bullet lists instead of a full per-dependency table. Every other expectation passed in both configurations on every eval.",
+    "Baseline (no skill) independently found the same high-value findings as with_skill in 2 of 3 evals (mcp's pnpm/npm layout mismatch in eval 2; the fastify-type-provider-zod peer-dependency blocker in eval 3) - and was arguably more thorough than with_skill on eval 3's key finding. A strong general-purpose agent with Bash/Grep is already quite capable at this kind of investigation.",
+    "with_skill was faster in all 3 evals (mean 256.7s vs 324.5s, -21%) - the scan.mjs script replaces a lot of ad-hoc `du`/version-reading tool calls with one deterministic pass.",
+    "Token usage did not consistently favor with_skill: it used fewer tokens in eval 1 and eval 3 but ~34% MORE in eval 2 than its own baseline - worth a closer look at what eval 2's with_skill run spent extra tool calls on.",
+    "Baseline (eval 1) is the one clear quality miss: it conflated ordinary patch-level version differences (expected with 5 independent lockfiles) with 'real drift found', which the skill's explicit majorDrift-only framing avoids - this is the skill's clearest, most reproducible value-add across the three evals, more than raw finding-power.",
+    "The skill's structural consistency (same 4-section template, same units, same mermaid diagram shape every time) is a real advantage for a report meant to be read repeatedly by a team, even though it didn't show up as a per-eval pass/fail difference here."
+  ]
+}

@@ -42,6 +42,10 @@ const CreateAgentBody = z.object({
   strategy: ReviewStrategy.optional(),
   ci_fail_on: CiFailOn.optional(),
   repo_intel: z.boolean().optional(),
+  // SPEC-04 AC-103-AC-105 — optional on BOTH bodies: a missing value must not
+  // clear an existing one, which is the same `!== undefined` rule every other
+  // field here follows.
+  auto_eval: z.boolean().optional(),
   enabled: z.boolean().optional(),
 });
 
@@ -55,6 +59,7 @@ const UpdateAgentBody = z.object({
   strategy: ReviewStrategy.optional(),
   ci_fail_on: CiFailOn.optional(),
   repo_intel: z.boolean().optional(),
+  auto_eval: z.boolean().optional(),
   enabled: z.boolean().optional(),
 });
 
@@ -126,6 +131,7 @@ export default async function agentsRoutes(appBase: FastifyInstance) {
         ...(body.strategy !== undefined ? { strategy: body.strategy } : {}),
         ...(body.ci_fail_on !== undefined ? { ci_fail_on: body.ci_fail_on } : {}),
         ...(body.repo_intel !== undefined ? { repo_intel: body.repo_intel } : {}),
+        ...(body.auto_eval !== undefined ? { auto_eval: body.auto_eval } : {}),
         ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
       },
       userId,
@@ -167,6 +173,35 @@ export default async function agentsRoutes(appBase: FastifyInstance) {
       const version = await service.getVersion(workspaceId, req.params.id, req.params.version);
       if (!version) throw new NotFoundError('Agent version not found');
       return version;
+    },
+  );
+
+  /**
+   * SPEC-04 AC-102-AC-105 — restore an older config as a NEW version.
+   *
+   * NO `body:` schema: this route takes no body, and a declared Zod body schema
+   * rejects a body-less POST with 422 (`server/insights.md` 2026-08-29). The
+   * shipped `VersionParams` is reused as-is — it already coerces the version to
+   * a positive integer.
+   *
+   * AC-105 — the restore path deliberately does not notify the eval trigger, so
+   * a rollback bills no batch (spec D-21). That is enforced in the service, by
+   * omission: `restoreVersion` never calls `notifyVersionBump`.
+   */
+  app.post(
+    '/agents/:id/versions/:version/restore',
+    { schema: { params: VersionParams } },
+    async (req) => {
+      const { workspaceId } = await getContext(app.container, req);
+      const agent = await service.restoreVersion(
+        workspaceId,
+        req.params.id,
+        req.params.version,
+      );
+      // Unknown agent, foreign agent, or a version that was never snapshotted —
+      // all three are indistinguishable to the caller, all three are 404.
+      if (!agent) throw new NotFoundError('Agent version not found');
+      return agent;
     },
   );
 
