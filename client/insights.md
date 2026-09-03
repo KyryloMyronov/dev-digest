@@ -14,6 +14,29 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-09-03 — Accept/Dismiss left the FindingCard stale until reload although the invalidation read correctly; the mutation now patches the cache from the response
+
+**Rubric:** Open Questions
+**Symptom:** on the PR "Agent runs" tab, pressing Accept did not flip the card
+(no Accepted tag, "Turn into eval case" stayed disabled per AC-6) until a page
+reload. The server was fine: `POST /findings/:id/accept` returned the finding
+with `accepted_at`, and an immediate `GET /pulls/:id/reviews` reflected it.
+`useFindingAction` invalidated `reviewKeys.byPr(prId)` with the right `prId`,
+`page.tsx` held the matching `usePrReviews(prId)`, no `React.memo`, no caching
+headers, one `QueryClient`. Static reading found nothing wrong, and no browser
+was available to watch the refetch.
+**Cause:** not established. Candidates NOT ruled out: the refetch fires but
+its result is discarded (structural sharing / a second observer with
+different `enabled`), or the mutation errors silently before `onSuccess`.
+**Fix (applied, and it works regardless of the cause):**
+`useFindingAction.onSuccess` now writes the server's returned finding straight
+into every cached reviews list via `qc.setQueriesData` (`patchCachedFinding`,
+`lib/hooks/reviews.ts`) and THEN invalidates; with no `prId` it sweeps the new
+`reviewKeys.all`. `lib/hooks/reviews.test.tsx` pins it with a refetch mock that
+never resolves — the only way `accepted_at` can reach the cache is the patch,
+so the test fails on the invalidate-only hook. Whoever next has a browser on
+this: watch the network tab after Accept, settle the cause, and supersede this.
+
 ## 2026-08-29 — adding `aria-expanded` to a REPEATED component silently poisons every `getByRole("button", {expanded})` query in the suite
 
 **Rubric:** Recurring Errors & Fixes

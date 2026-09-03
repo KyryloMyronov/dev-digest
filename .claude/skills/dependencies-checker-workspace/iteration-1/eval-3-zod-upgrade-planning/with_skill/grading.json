@@ -1,0 +1,14 @@
+{
+  "expectations": [
+    {"text": "reports_actual_installed_zod_version_per_package", "passed": true, "evidence": "Table with declared range + installed version (3.25.76 for all 4) per package."},
+    {"text": "does_not_falsely_claim_drift", "passed": true, "evidence": "Explicitly states 'Нема drift' and explains why (identical resolved version despite no shared lockfile)."},
+    {"text": "separately_notes_declared_range_difference", "passed": true, "evidence": "Notes mcp's ^3.25.0 vs ^3.24.1 elsewhere as 'косметична різниця... лише майбутній ризик', clearly secondary to the drift finding."},
+    {"text": "covers_other_outdated_majors_beyond_zod", "passed": true, "evidence": "Section 4 covers typescript, vitest, openai, next, octokit, testcontainers etc. across all 5 packages."}
+  ],
+  "summary": {"passed": 4, "failed": 0, "total": 4, "pass_rate": 1.0},
+  "timing": {"executor_duration_seconds": 151.9, "total_tokens": 58378, "tool_uses": 12},
+  "notes": [
+    "Found the real, high-value blocker beyond what was asked: fastify-type-provider-zod@4.0.2 (server) has a peerDependency on zod ^3.14.2, which does not cover zod 4 - a genuine gate on the upgrade.",
+    "Fastest and cheapest of all 6 runs (151.9s, 58.4k tokens) while still reaching the key finding."
+  ]
+}

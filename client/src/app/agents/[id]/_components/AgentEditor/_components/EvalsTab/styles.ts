@@ -1,0 +1,81 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for the agent EvalsTab (SPEC-04). */
+export const s = {
+  wrap: { maxWidth: 880 } satisfies CSSProperties,
+  header: { display: "flex", alignItems: "center", gap: 12, marginBottom: 6 } satisfies CSSProperties,
+  headerText: { flex: 1 } satisfies CSSProperties,
+  h2: { fontSize: 18, fontWeight: 700 } satisfies CSSProperties,
+  hint: {
+    fontSize: 13,
+    color: "var(--text-secondary)",
+    marginBottom: 18,
+    lineHeight: 1.5,
+  } satisfies CSSProperties,
+  tiles: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 12,
+    marginBottom: 8,
+  } satisfies CSSProperties,
+  tile: {
+    padding: 14,
+    borderRadius: 8,
+    border: "1px solid var(--border)",
+    background: "var(--bg-elevated)",
+  } satisfies CSSProperties,
+  tileLabel: {
+    fontSize: 11,
+    letterSpacing: "0.06em",
+    color: "var(--text-secondary)",
+  } satisfies CSSProperties,
+  tileValue: { fontSize: 24, fontWeight: 700, marginTop: 4 } satisfies CSSProperties,
+  tileDelta: { fontSize: 12, color: "var(--text-secondary)", marginTop: 2 } satisfies CSSProperties,
+  sectionLabel: {
+    fontSize: 12,
+    letterSpacing: "0.06em",
+    color: "var(--text-secondary)",
+    margin: "22px 0 8px",
+  } satisfies CSSProperties,
+  list: {
+    listStyle: "none",
+    margin: 0,
+    padding: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  } satisfies CSSProperties,
+  row: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "10px 12px",
+    borderRadius: 8,
+    border: "1px solid var(--border)",
+    background: "var(--bg-surface)",
+  } satisfies CSSProperties,
+  rowMain: { flex: 1, minWidth: 0 } satisfies CSSProperties,
+  rowName: { fontSize: 14, fontWeight: 600 } satisfies CSSProperties,
+  rowMeta: { fontSize: 12, color: "var(--text-secondary)", marginTop: 2 } satisfies CSSProperties,
+  batchTable: { width: "100%", borderCollapse: "collapse", fontSize: 13 } satisfies CSSProperties,
+  th: {
+    textAlign: "left",
+    padding: "6px 8px",
+    color: "var(--text-secondary)",
+    fontWeight: 500,
+    borderBottom: "1px solid var(--border)",
+  } satisfies CSSProperties,
+  td: { padding: "6px 8px", borderBottom: "1px solid var(--border)" } satisfies CSSProperties,
+  /** WCAG 2.2 SC 4.1.3 — announced, not drawn. */
+  srOnly: {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    margin: -1,
+    padding: 0,
+    overflow: "hidden",
+    clip: "rect(0 0 0 0)",
+    whiteSpace: "nowrap",
+    border: 0,
+  } satisfies CSSProperties,
+};

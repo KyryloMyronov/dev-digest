@@ -1,0 +1,11 @@
+{
+  "eval_id": 3,
+  "eval_name": "zod-upgrade-planning",
+  "prompt": "Ми думаємо про оновлення zod до 4-ї мажорної версії. Перед тим як це робити, хочу переконатися що немає розбіжностей версій між server/client/reviewer-core/mcp, і які ще залежності в нас застарілі настільки що варто звернути увагу.",
+  "expectations": [
+    "reports_actual_installed_zod_version_per_package — gives the real resolved zod version in each of server/client/reviewer-core/mcp (from node_modules), not just the declared package.json range",
+    "does_not_falsely_claim_drift — ground truth is that all 4 packages currently resolve to the same zod major/version; the answer must not claim there IS a version conflict/drift when there isn't one",
+    "separately_notes_declared_range_difference — if it notices mcp declares a different semver range (^3.25.0 vs ^3.24.1 elsewhere) it flags this as a minor/cosmetic note, not as if it were already causing a problem",
+    "covers_other_outdated_majors_beyond_zod — the answer also surfaces at least one other significant outdated major dependency (e.g. typescript, vitest, openai, next), since the user asked for that too, not just a zod-only answer"
+  ]
+}

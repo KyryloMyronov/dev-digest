@@ -1,0 +1,46 @@
+{
+  "skill_name": "dependencies-checker",
+  "evals": [
+    {
+      "id": 1,
+      "name": "full-audit-request",
+      "prompt": "Хочу зробити повний аудит залежностей нашого репозиторію dev-digest-kyrmyr — по всіх наших пакетах (server, client, reviewer-core, mcp, e2e). Треба схема залежностей, скільки кожен пакет важить на диску, які версії де встановлені, і в кінці список що варто зробити першочергово.",
+      "expected_output": "A structured report covering: a diagram of the 5 packages and their relationships, a per-package dependency size/version table, cross-package findings (duplicates/version drift, outdated majors), and a prioritized action list at the end.",
+      "files": [],
+      "expectations": [
+        "has_mermaid_diagram — report contains a ```mermaid fenced code block",
+        "covers_all_5_packages — server, client, reviewer-core, mcp, and e2e are each named with at least one concrete number (size or dependency) attached",
+        "has_per_dependency_size_table — at least one markdown table with per-dependency size figures, not just per-package totals",
+        "distinguishes_declared_range_from_installed_version — explicitly reports two different values for at least one dependency: the package.json semver range AND the actual resolved/installed version, not just one",
+        "ends_with_ranked_recommendations — the report closes with an explicit priority-ordered action list (not a flat bullet dump with no ordering signal)",
+        "sizes_look_measured_not_guessed — numeric MB/GB figures are present per package and are plausible (not suspiciously round numbers like exactly '100 MB' for everything, which would indicate estimation rather than a real `du` measurement)"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "slow-install-symptom",
+      "prompt": "Останнім часом `pnpm install` в client і `npm install` в mcp стали помітно довше виконуватись, і node_modules ніби розрослися. Можеш подивитись що там найважче по розміру і чи не завелось щось зайве чи задубльоване між пакетами?",
+      "expected_output": "An investigation that measures actual installed sizes per package/dependency (not guesses), identifies the heaviest dependencies, checks for duplicate/drifted versions across packages, and gives a concrete recommendation — ideally verifying whether any large dependency is actually unused before recommending removal.",
+      "files": [],
+      "expectations": [
+        "names_specific_heaviest_dependencies — the answer names concrete dependency names with concrete sizes for client and mcp, not just 'node_modules is big'",
+        "compares_versions_across_packages — explicitly checks whether the same dependency (e.g. zod, typescript, @types/node) is installed at different versions in client vs mcp specifically (the two packages the user named)",
+        "verifies_usage_before_calling_something_unused — if the answer claims any dependency is unused/superfluous, it backs that with an actual grep/search result rather than asserting it from size alone",
+        "gives_an_actionable_next_step — ends with a concrete suggestion, not just a diagnosis with no recommendation"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "zod-upgrade-planning",
+      "prompt": "Ми думаємо про оновлення zod до 4-ї мажорної версії. Перед тим як це робити, хочу переконатися що немає розбіжностей версій між server/client/reviewer-core/mcp, і які ще залежності в нас застарілі настільки що варто звернути увагу.",
+      "expected_output": "A check of zod's installed version consistency across the 4 relevant packages (not just declared ranges), plus a broader outdated-majors scan across all packages, framed as pre-upgrade due diligence with a prioritized list of what else is stale.",
+      "files": [],
+      "expectations": [
+        "reports_actual_installed_zod_version_per_package — gives the real resolved zod version in each of server/client/reviewer-core/mcp (from node_modules), not just the declared package.json range",
+        "does_not_falsely_claim_drift — ground truth is that all 4 packages currently resolve to the same zod major/version; the answer must not claim there IS a version conflict/drift when there isn't one",
+        "separately_notes_declared_range_difference — if it notices mcp declares a different semver range (^3.25.0 vs ^3.24.1 elsewhere) it flags this as a minor/cosmetic note, not as if it were already causing a problem",
+        "covers_other_outdated_majors_beyond_zod — the answer also surfaces at least one other significant outdated major dependency (e.g. typescript, vitest, openai, next), since the user asked for that too, not just a zod-only answer"
+      ]
+    }
+  ]
+}

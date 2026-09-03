@@ -18,7 +18,7 @@ import {
   type Category,
 } from "@devdigest/ui";
 import type { FindingRecord, FindingActionKind } from "@devdigest/shared";
-import { SEV_COLOR, SEV_COLOR_FALLBACK } from "./constants";
+import { EVAL_CASE_EXCLUDED_KINDS, SEV_COLOR, SEV_COLOR_FALLBACK } from "./constants";
 import { lineLabel } from "./helpers";
 import { githubBlobUrl } from "../../../../../../../lib/github-urls";
 import { s } from "./styles";
@@ -33,6 +33,8 @@ export function FindingCard({
   headSha,
   onJumpToDiff,
   inDiff,
+  onTurnIntoEvalCase,
+  evalCasePending,
 }: {
   f: FindingRecord;
   focused?: boolean;
@@ -45,6 +47,9 @@ export function FindingCard({
   onJumpToDiff?: () => void;
   /** false = the anchored line isn't in the diff — mark it, don't promise a landing. */
   inDiff?: boolean;
+  /** SPEC-04 AC-5/AC-6 — turn this finding into a permanent eval case. */
+  onTurnIntoEvalCase?: () => void;
+  evalCasePending?: boolean;
 }) {
   const t = useTranslations("prReview");
   const [expanded, setExpanded] = React.useState(defaultExpanded ?? false);
@@ -56,6 +61,11 @@ export function FindingCard({
   const accepted = !!f.accepted_at;
   const dismissed = !!f.dismissed_at;
   const muted = accepted || dismissed;
+  // AC-5 — OMITTED by kind. AC-6 — PRESENT but disabled until the reviewer has
+  // judged the finding: an eval case built from an unjudged finding would have
+  // no ground truth to assert.
+  const evalCaseOffered = !EVAL_CASE_EXCLUDED_KINDS.includes(f.kind ?? "finding");
+  const evalCaseReady = accepted || dismissed;
 
   return (
     <div data-finding-id={f.id} style={s.card(!!focused, sevColor, muted)}>
@@ -137,6 +147,27 @@ export function FindingCard({
             >
               {t("finding.dismiss")}
             </Button>
+            {evalCaseOffered && (
+              <Button
+                kind="ghost"
+                size="sm"
+                icon="Gauge"
+                disabled={!evalCaseReady || evalCasePending}
+                // The accessible NAME carries AC-6's hint when the action is
+                // disabled. `aria-label` beats `title` in the accessible-name
+                // computation, so a test asserting `title` could not fail on a
+                // broken name (`client/insights.md` 2026-08-28) — the name is
+                // what is asserted, and therefore what is set.
+                aria-label={
+                  evalCaseReady
+                    ? t("finding.turnIntoEvalCase")
+                    : t("finding.turnIntoEvalCaseHint")
+                }
+                onClick={() => onTurnIntoEvalCase?.()}
+              >
+                {t("finding.turnIntoEvalCase")}
+              </Button>
+            )}
           </div>
         </div>
       )}

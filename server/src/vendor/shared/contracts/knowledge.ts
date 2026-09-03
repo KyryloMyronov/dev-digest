@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Severity, FindingCategory } from './findings.js';
 
 /**
  * Conformance, Onboarding, Eval, Memory, Conventions, Skills,
@@ -70,6 +71,38 @@ export type EvalRun = z.infer<typeof EvalRun>;
 export const EvalOwnerKind = z.enum(['skill', 'agent']);
 export type EvalOwnerKind = z.infer<typeof EvalOwnerKind>;
 
+/**
+ * What a case asserts about the agent's output (SPEC-04 AC-7, AC-8).
+ *  - `must_find`     the agent SHOULD produce the expected findings
+ *  - `must_not_flag` the agent should produce NO finding at all
+ */
+export const EvalExpectation = z.enum(['must_find', 'must_not_flag']);
+export type EvalExpectation = z.infer<typeof EvalExpectation>;
+
+/**
+ * One entry of a case's `expected_output` (AC-19).
+ *
+ * Deliberately NOT `Finding`: a hand-written case carries no `id`, `rationale`
+ * or `confidence`, and requiring them would make every hand-written case
+ * invalid. The object-level transform fills `end_line` from `start_line`
+ * (AC-21), which makes `z.input` differ from `z.infer` — so the caller-facing
+ * type is exported separately as `EvalExpectedFindingBody`, the pattern
+ * `ComposeReviewInputBody` already sets (`eval-ci.ts:105-106`).
+ */
+export const EvalExpectedFinding = z
+  .object({
+    file: z.string().min(1),
+    start_line: z.number().int(),
+    end_line: z.number().int().optional(),
+    severity: Severity.optional(),
+    category: FindingCategory.optional(),
+    title: z.string().optional(),
+  })
+  .transform((v) => ({ ...v, end_line: v.end_line ?? v.start_line }));
+export type EvalExpectedFinding = z.infer<typeof EvalExpectedFinding>;
+/** Caller-facing input type — `end_line` stays optional before the transform. */
+export type EvalExpectedFindingBody = z.input<typeof EvalExpectedFinding>;
+
 export const EvalCase = z.object({
   id: z.string(),
   owner_kind: EvalOwnerKind,
@@ -78,7 +111,15 @@ export const EvalCase = z.object({
   input_diff: z.string(),
   input_files: z.unknown(),
   input_meta: z.unknown(),
-  expected_output: z.unknown(),
+  // Narrowed from z.unknown() by SPEC-04: an agent-owned case's expectations are
+  // parsed, not opaque. `grep -rnw EvalCase` found no consumer outside
+  // vendor/shared at the time of the narrowing, so nothing broke.
+  // AC-109 / NFR-7 — 20 is the ceiling at EVERY use site. The literal is
+  // repeated rather than imported: a value import from @devdigest/shared breaks
+  // the client's webpack build (client/insights.md 2026-08-11). The server-side
+  // twin is MAX_EXPECTED_FINDINGS in modules/eval/constants.ts.
+  expected_output: z.array(EvalExpectedFinding).max(20),
+  expectation: EvalExpectation,
   notes: z.string().nullish(),
 });
 export type EvalCase = z.infer<typeof EvalCase>;
@@ -274,6 +315,11 @@ export const Agent = z.object({
   // Inject repo-intel context (repo skeleton + callers + rank note) into this
   // agent's review prompt. Default on; gated again by the global flag.
   repo_intel: z.boolean().default(true),
+  // Re-run this agent's eval case set automatically when a prompt-, model- or
+  // skill-affecting version bump lands (SPEC-04 AC-85). `.default(false)`
+  // mirrors `repo_intel` two lines above: optional on the wire, present in the
+  // parsed value.
+  auto_eval: z.boolean().default(false),
 });
 export type Agent = z.infer<typeof Agent>;
 
@@ -311,6 +357,11 @@ export const AgentVersionConfig = z.object({
   ci_fail_on: CiFailOn,
   repo_intel: z.boolean(),
   skills: z.array(z.string()),
+  // SPEC-04 AC-104 — set only on a version minted by a restore, naming the
+  // version whose config was copied forward. `.nullish()` because this shape is
+  // parsed on EVERY version read (`agents/helpers.ts:36-39`): a snapshot
+  // written without it must still parse, and one written with it must not throw.
+  restored_from: z.number().int().nullish(),
 });
 export type AgentVersionConfig = z.infer<typeof AgentVersionConfig>;
 

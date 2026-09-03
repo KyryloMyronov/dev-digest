@@ -1,0 +1,11 @@
+{
+  "eval_id": 2,
+  "eval_name": "slow-install-symptom",
+  "prompt": "Останнім часом `pnpm install` в client і `npm install` в mcp стали помітно довше виконуватись, і node_modules ніби розрослися. Можеш подивитись що там найважче по розміру і чи не завелось щось зайве чи задубльоване між пакетами?",
+  "expectations": [
+    "names_specific_heaviest_dependencies — the answer names concrete dependency names with concrete sizes for client and mcp, not just 'node_modules is big'",
+    "compares_versions_across_packages — explicitly checks whether the same dependency (e.g. zod, typescript, @types/node) is installed at different versions in client vs mcp specifically (the two packages the user named)",
+    "verifies_usage_before_calling_something_unused — if the answer claims any dependency is unused/superfluous, it backs that with an actual grep/search result rather than asserting it from size alone",
+    "gives_an_actionable_next_step — ends with a concrete suggestion, not just a diagnosis with no recommendation"
+  ]
+}

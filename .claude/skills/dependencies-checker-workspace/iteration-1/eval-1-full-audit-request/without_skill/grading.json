@@ -1,0 +1,16 @@
+{
+  "expectations": [
+    {"text": "has_mermaid_diagram", "passed": true, "evidence": "Uses a flowchart TB with subgraphs per package plus styling, arguably richer visually than the with-skill diagram."},
+    {"text": "covers_all_5_packages", "passed": true, "evidence": "All 5 packages named with size figures in the size table."},
+    {"text": "has_per_dependency_size_table", "passed": false, "evidence": "Section 2 gives one table of per-PACKAGE totals, then only an inline bullet list of each package's top ~5 heaviest deps (no size column as a real table) - no comprehensive per-dependency table exists for any package the way with_skill produced (every direct dep, every package)."},
+    {"text": "distinguishes_declared_range_from_installed_version", "passed": true, "evidence": "Section 3.1 has an explicit installed-version table plus prose calling out that the same declared ^-range resolved differently across lockfiles for tsx/@types/node."},
+    {"text": "ends_with_ranked_recommendations", "passed": true, "evidence": "Section 5 is a P0/P1/P2 numbered action list."},
+    {"text": "sizes_look_measured_not_guessed", "passed": true, "evidence": "Precise real figures, plus extra real measurements not requested (`.next` cache size, `.git` size, `pnpm/npm audit` vulnerability counts)."}
+  ],
+  "summary": {"passed": 5, "failed": 1, "total": 6, "pass_rate": 0.833},
+  "timing": {"executor_duration_seconds": 381.7, "total_tokens": 93911, "tool_uses": 36},
+  "notes": [
+    "Also flagged 'real drift found' for tsx and @types/node based on PATCH-level version differences across independent lockfiles (e.g. tsx 4.22.4 vs 4.23.12, all major 4) - this is expected noise with 5 separate lockfiles and not the kind of drift that matters (only installed-MAJOR divergence is), but the report frames it alongside real findings without that distinction, which slightly overstates a non-issue.",
+    "Went further than asked in a good way: ran actual npm/pnpm audit and reported real vulnerability counts, checked git log to confirm the mcp pnpm-lock.yaml was actually committed (not just present on disk), found the missing `engines` field and the mcp allowBuilds inconsistency - none of which the with_skill run surfaced."
+  ]
+}

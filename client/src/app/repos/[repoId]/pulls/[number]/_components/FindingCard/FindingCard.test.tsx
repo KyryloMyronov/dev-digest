@@ -112,3 +112,80 @@ describe("FindingCard · jump to diff (SPEC-02 AC-50)", () => {
     });
   });
 });
+
+/**
+ * SPEC-04 AC-5 / AC-6 — "Turn into eval case".
+ *
+ * EVERY test here EXPANDS THE CARD FIRST. The action row renders only inside
+ * `{expanded && …}`, so an "the action is absent" assertion on a collapsed card
+ * passes in every code state, including a completely broken one (plan D-20).
+ * The `defaultExpanded` prop is what makes that explicit rather than incidental.
+ *
+ * Assertions go through the ACCESSIBILITY TREE, never through `title`:
+ * `aria-label` beats `title` in the accessible-name computation, so a test
+ * asserting `toHaveAttribute("title", …)` cannot fail on a broken accessible
+ * name (`client/insights.md` 2026-08-28).
+ */
+describe("SPEC-04 — Turn into eval case", () => {
+  const judged = (over: Partial<FindingRecord> = {}): FindingRecord => ({
+    ...FINDING,
+    accepted_at: "2026-09-01T00:00:00.000Z",
+    ...over,
+  });
+
+  const renderCard = (f: FindingRecord, onTurn = vi.fn()) => {
+    renderWithIntl(<FindingCard f={f} defaultExpanded onTurnIntoEvalCase={onTurn} />);
+    return onTurn;
+  };
+
+  it("the card really is expanded — the action row is on screen", () => {
+    // Guards every "absent" assertion below: if this fails, they prove nothing.
+    renderCard(judged());
+    expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument();
+  });
+
+  it.each(["secret_leak", "phantom", "hook", "lethal_trifecta"] as const)(
+    "AC-5 — the action is ABSENT for kind %s",
+    (kind) => {
+      renderCard(judged({ kind }));
+      expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /eval case/i }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it("AC-6 — present but DISABLED with neither timestamp, carrying the hint", () => {
+    renderCard({ ...FINDING, accepted_at: null, dismissed_at: null });
+    const btn = screen.getByRole("button", { name: "Accept or dismiss this finding first" });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAccessibleName("Accept or dismiss this finding first");
+  });
+
+  it("is enabled once the finding is accepted, and calls back", () => {
+    const onTurn = renderCard(judged());
+    const btn = screen.getByRole("button", { name: "Turn into eval case" });
+    expect(btn).not.toBeDisabled();
+    fireEvent.click(btn);
+    expect(onTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it("is enabled once the finding is dismissed", () => {
+    renderCard({ ...FINDING, accepted_at: null, dismissed_at: "2026-09-01T00:00:00.000Z" });
+    expect(screen.getByRole("button", { name: "Turn into eval case" })).not.toBeDisabled();
+  });
+
+  it("omission and disablement stay DIFFERENT states", () => {
+    // An excluded kind with no timestamps: omitted, not disabled-with-a-hint.
+    renderCard({ ...FINDING, kind: "secret_leak", accepted_at: null, dismissed_at: null });
+    expect(
+      screen.queryByRole("button", { name: "Accept or dismiss this finding first" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("the card ships THREE actions — learn and replyToAuthor stay unbuilt (OQ-4)", () => {
+    renderCard(judged());
+    expect(screen.queryByRole("button", { name: "Learn" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reply to author" })).not.toBeInTheDocument();
+  });
+});

@@ -13,6 +13,7 @@ import reviews from './reviews/routes.js';
 import repoIntel from './repo-intel/routes.js';
 import conventions from './conventions/routes.js';
 import projectContext from './project-context/routes.js';
+import evalModule from './eval/routes.js';
 
 /**
  * Module registry. Each feature module is a Fastify plugin in
@@ -42,4 +43,7 @@ export const modules: Record<string, FastifyPluginAsync> = {
   repoIntel,
   conventions,
   projectContext,
+  // SPEC-04 — `eval` is a reserved word, so the import is aliased; the KEY is
+  // what names the module in the registry.
+  eval: evalModule,
 };

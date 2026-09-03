@@ -7,6 +7,8 @@
  *  - contracts/file-summary  PrFileSummary/PrFileSummariesResponse/FileSummaryDeriveInput
  *  - contracts/knowledge  Conformance, Onboarding, EvalRun/EvalCase, MemoryItem,
  *                         Skill/CommunitySkill, ConventionCandidate, Agent
+ *  - contracts/eval-agent SPEC-04 agent evals: EvalBatchRecord/Status/Accepted,
+ *                         EvalWorkspaceDashboard, EvalDashboardAgentRow, estimate
  *  - contracts/trace      RunTrace, RunEvent, RunLogLine (single-document trace)
  *  - contracts/platform   Settings, ConnTestResult, Repo, PrMeta/PrDetail, SpecFile, …
  *  - contracts/project-context  ContextDoc/ContextDocList/ContextDocContent,
@@ -23,6 +25,7 @@ export * from './contracts/brief.js';
 export * from './contracts/file-summary.js';
 export * from './contracts/blast.js';
 export * from './contracts/knowledge.js';
+export * from './contracts/eval-agent.js';
 export * from './contracts/trace.js';
 export * from './contracts/platform.js';
 export * from './contracts/project-context.js';

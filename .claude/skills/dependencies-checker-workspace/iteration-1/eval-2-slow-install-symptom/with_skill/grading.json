@@ -1,0 +1,13 @@
+{
+  "expectations": [
+    {"text": "names_specific_heaviest_dependencies", "passed": true, "evidence": "Full size tables for both client and mcp with concrete names and MB figures (next 152.3MB, mermaid 75.3MB, @modelcontextprotocol/sdk 5.9MB, etc.)."},
+    {"text": "compares_versions_across_packages", "passed": true, "evidence": "Cross-package version table covers zod/typescript/@types/node/tsx/vitest/openai across all 5 packages including client and mcp side by side; concludes majorDrift=false for all."},
+    {"text": "verifies_usage_before_calling_something_unused", "passed": true, "evidence": "Confirmed mermaid/lucide-react usage via grep (noting mermaid's dynamic import needed a second grep pass), confirmed inspector has 0 usages before flagging it dead."},
+    {"text": "gives_an_actionable_next_step", "passed": true, "evidence": "Closes with a P0-P5 prioritized recommendation table."}
+  ],
+  "summary": {"passed": 4, "failed": 0, "total": 4, "pass_rate": 1.0},
+  "timing": {"executor_duration_seconds": 295.9, "total_tokens": 97057, "tool_uses": 19},
+  "notes": [
+    "Correctly identified the real root cause of the mcp slowdown (pnpm-shaped node_modules under an npm-only package) - same finding as the baseline run for this eval."
+  ]
+}

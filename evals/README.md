@@ -321,7 +321,7 @@ evals/
     fixtures/widgets-service.ts
   agents/architecture-reviewer/
     architecture-reviewer.eval.ts  # describeAgent(...) — identical shape to a skill
-    architecture-reviewer.cases.ts
+    architecture-reviewer-lite.cases.ts
     fixtures/auth-route-violation.diff
   workflow/
     review-workflow.eval.ts        # describeWorkflow("review", () => runWorkflowCases(cases))

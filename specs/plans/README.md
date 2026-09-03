@@ -109,3 +109,4 @@ Review findings are a different thing and do **not** belong here. An
 | [SPEC-01-project-context.plan.md](SPEC-01-project-context.plan.md) | [SPEC-01](../SPEC-01-project-context.md) | `delivered` | `single-agent` |
 | [SPEC-02-pr-brief.plan.md](SPEC-02-pr-brief.plan.md) | [SPEC-02](../SPEC-02-pr-brief.md) | `approved` | `single-agent` |
 | [SPEC-03-reviewer-ordered-diff.plan.md](SPEC-03-reviewer-ordered-diff.plan.md) | [SPEC-03](../SPEC-03-reviewer-ordered-diff.md) | `delivered` | `single-agent` |
+| [SPEC-04-agent-evals.plan.md](SPEC-04-agent-evals.plan.md) | [SPEC-04](../SPEC-04-agent-evals.md) | `approved` | `single-agent` |

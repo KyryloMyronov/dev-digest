@@ -72,9 +72,12 @@ flowchart TB
     reviews["reviews<br/>/pulls/:id/review · /pulls/:id/intent · /reviews<br/>/findings/:id/(accept|dismiss) · /runs/:id/(events|trace)"]
   end
   subgraph Agents["Agents & skills"]
-    agents["agents<br/>/agents · /agents/:id<br/>/agents/:id/skills (set · toggle · unlink)"]
+    agents["agents<br/>/agents · /agents/:id<br/>/agents/:id/skills (set · toggle · unlink)<br/>/agents/:id/versions/:version/restore"]
     skills["skills<br/>/skills · /skills/:id<br/>/skills/:id/(versions|agents)"]
     agents --- skills
+  end
+  subgraph Eval["Agent evals (SPEC-04)"]
+    evalMod["eval<br/>/findings/:id/eval-case · /agents/:id/eval-cases<br/>/eval-cases/:id (· /runs) · /agents/:id/eval-runs<br/>/eval · /eval/runs · /eval/estimate · /eval/agents/:agentId"]
   end
   subgraph Intel["Repo intelligence"]
     repoIntel["repo-intel<br/>/repos/:id/index-state · /resync"]
@@ -101,6 +104,8 @@ flowchart TB
 | `REPO_INTEL_ENABLED` | `true` | repo skeleton + callers in the prompt; `false` → ripgrep-only |
 | `PROMPT_LOG_VERBOSE` | `false` | per-section prompt sizes at DEBUG. **Local only** — ignored under `NODE_ENV=production`. Never logs prompt content |
 | `DEVDIGEST_CLONE_DIR` | `./clones` | imported-repo checkouts (git-ignored) |
+| `EVAL_BATCH_MAX_USD` | `0.5` | SPEC-04 — an eval batch stops before the case that would take it past this ceiling |
+| `EVAL_BATCH_MAX_MS` | `900000` | SPEC-04 — an eval batch's wall-clock ceiling. Lowered in tests so NFR-6 is provable in seconds |
 | `LOG_LEVEL` | `info` (`silent` in test) | pino level |
 | `NODE_ENV` | `development` | `test` → silent logs + global rate-limit disabled |
 

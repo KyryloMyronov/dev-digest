@@ -1,0 +1,94 @@
+{
+  "name": "Eval Dashboard navigation and the agent editor's Evals tab",
+  "description": "SPEC-04's browser smoke path: sidebar → /eval → an agent's eval page → the agent editor's Evals tab, surviving a reload. It covers no acceptance criterion on its own — AC-59, AC-68 and AC-69 each have a hermetic RTL test that is their primary proof (EvalsTab.test.tsx, useGlobalShortcuts.test.ts, EvalDashboardView.test.tsx). What this flow adds is the one thing jsdom cannot say: that the three NEW App Router routes actually build and serve, and that the sidebar row added to nav.ts resolves to a page rather than a 404. Slot 12, not 11: 11-project-context.flow.json holds that one (plan D-18). FALLBACK TAKEN (a): the `g e` chord is NOT driven here, for the reason 11-project-context.flow.json records at length — `agent-browser`'s `press` holds the key down and one invocation dispatches ~180 auto-repeat keydowns, which for a g-chord means ~90 duplicate router.push calls. The sidebar row is clicked instead, and UX-8's chord keeps its guaranteed proof in useGlobalShortcuts.test.ts. DETERMINISTIC AND READ-ONLY: it opens and clicks. It presses no Run control, enqueues no batch and spends no provider money — the seeded workspace holds no eval case, so the empty state is the correct render and asserting it is asserting the truth rather than working around a gap.",
+  "steps": [
+    {
+      "cmd": ["open", "{BASE}/"],
+      "label": "load the app root"
+    },
+    {
+      "cmd": ["wait", "--url", "/pulls"],
+      "label": "land on the active repo's PR list"
+    },
+    {
+      "cmd": ["wait", "--load", "networkidle"],
+      "label": "the shell and its repo list settle"
+    },
+    {
+      "cmd": ["find", "text", "Eval Dashboard", "click"],
+      "label": "AC-68: the SKILLS LAB sidebar row added to nav.ts (fallback (a) for the g e chord — see description)"
+    },
+    {
+      "cmd": ["wait", "--url", "/eval"],
+      "label": "AC-68: the row resolves to a real route, not a 404"
+    },
+    {
+      "cmd": ["wait", "--load", "networkidle"],
+      "label": "GET /eval settles"
+    },
+    {
+      "cmd": ["wait", "--text", "Eval Dashboard"],
+      "label": "AC-69: the workspace dashboard rendered"
+    },
+    {
+      "cmd": ["wait", "--text", "No eval cases in this workspace yet"],
+      "label": "AC-70: the seeded workspace holds no eval case, so the empty state is the correct render"
+    },
+    {
+      "cmd": ["open", "{BASE}/eval"],
+      "label": "reload the route directly — a client-rendered SPA route must survive a cold entry, not only a client-side push"
+    },
+    {
+      "cmd": ["wait", "--load", "networkidle"],
+      "label": "the cold load settles"
+    },
+    {
+      "cmd": ["wait", "--text", "Eval Dashboard"],
+      "label": "the route serves on a direct hit too"
+    },
+    {
+      "cmd": ["find", "text", "Go to Agents", "click"],
+      "label": "AC-70: the empty state's way out is the agent editor"
+    },
+    {
+      "cmd": ["wait", "--url", "/agents"],
+      "label": "landed on the agents list"
+    },
+    {
+      "cmd": ["wait", "--load", "networkidle"],
+      "label": "the agents list settles"
+    },
+    {
+      "cmd": ["find", "text", "Security Reviewer", "click"],
+      "label": "open a seeded agent"
+    },
+    {
+      "cmd": ["wait", "--url", "/agents/"],
+      "label": "the agent editor route"
+    },
+    {
+      "cmd": ["wait", "--load", "networkidle"],
+      "label": "the editor's data settles"
+    },
+    {
+      "cmd": ["find", "text", "Evals", "click"],
+      "label": "AC-59: the Evals tab exists in the editor's tab strip"
+    },
+    {
+      "cmd": ["wait", "--url", "tab=evals"],
+      "label": "AC-60: the tab is addressable through ?tab="
+    },
+    {
+      "cmd": ["wait", "--text", "Eval metrics"],
+      "label": "AC-60: the tab BODY rendered — not just the strip entry"
+    },
+    {
+      "cmd": ["wait", "--text", "No eval cases yet"],
+      "label": "AC-65: the agent has no cases, so the empty state offering to create one is the correct render"
+    },
+    {
+      "cmd": ["open", "{BASE}/"],
+      "label": "leave the app on a neutral route for the next flow"
+    }
+  ]
+}

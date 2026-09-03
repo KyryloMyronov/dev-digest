@@ -14,6 +14,91 @@ Session Notes · Open Questions. Find one with
 
 ---
 
+## 2026-09-03 — the 120 s `JobRunner` default marks every real eval batch `failed` in `jobs` — long kinds must `register()` with their own `timeoutMs`
+
+**Rubric:** Recurring Errors & Fixes
+**Symptom:** two manual eval batches (7 cases, `deepseek/deepseek-v4-flash` via
+OpenRouter) had their `jobs` rows go `failed` with
+`Operation timed out after 120000ms` exactly 120 s after `started_at`, while the
+studio kept showing the batch as `running` and `eval_runs` kept filling in. One
+case took 28–67 s, and `runBatch` runs cases SERIALLY, so seven cases is
+~6–8 minutes — no batch beyond two or three cases could ever finish inside the
+runner's default. The spec's own ceiling (`EVAL_BATCH_MAX_MS`, 900 s, AC-110)
+never got a chance to bind.
+**Cause:** `container.ts` builds `new JobRunner(db)` with defaults (120 s,
+`platform/jobs.ts`), and until today `register()` took no per-kind deadline, so
+`eval-batch` and `agent-version-eval` raced the same 120 s as `poll_repo`. The
+trigger's AC-92 comment even documented this as "ACCEPTED" — it is not, because
+it makes the `jobs` table lie about every batch that matters.
+**Fix:** `JobRunner.register(kind, handler, { timeoutMs })` now stores a per-kind
+override and `timeoutFor(kind)` reads it; both eval kinds register with
+`config.evalBatchMaxMs + EVAL_JOB_TIMEOUT_HEADROOM_MS` (`eval/constants.ts`,
+300 s of headroom because the wall clock is checked only BETWEEN cases). Any new
+kind whose honest duration is minutes must do the same — do not raise the
+runner-wide default, and do not duplicate the number: derive it from the knob
+the spec names. Pinned by `test/jobs-timeout.test.ts`, the "registers with the
+batch deadline" cases in `eval-service.test.ts` / `eval-trigger.test.ts`.
+Second gotcha found the same way: `pnpm dev` is `tsx watch`, so **saving any
+server file while a batch is in flight restarts the API and the batch reads
+`partial` forever** (the active-batch set is in-memory, by design). Do not edit
+server code while recording an eval demo.
+
+## 2026-09-03 — `docker exec devdigest-postgres …` without `--context rancher-desktop` reads a DIFFERENT database than the API — check `docker context ls` before trusting any SQL
+
+**Rubric:** Recurring Errors & Fixes
+**Supersedes:** 2026-08-29 — Colima's socket DID work for testcontainers here, contradicting the 2026-08-27 Rancher entry
+**Symptom:** `docker exec devdigest-postgres psql …` reported 15 applied
+migrations, `eval_cases` without its `expectation` column, 0 eval cases and 0
+judged findings — and a whole verification report was written on that basis —
+while the API on `:3001` was happily serving 18 migrations, a case, and accepted
+findings. `curl /repos` and the SQL even disagreed on the workspace id.
+**Cause:** this machine runs TWO container runtimes and each has a container
+named `devdigest-postgres`. `docker context ls` shows `colima` as the CURRENT
+context, so a bare `docker exec` lands in Colima's copy. Host port **5432 is
+forwarded by Rancher Desktop** (`lsof -iTCP:5432` shows an `ssh` process from
+`rancher-desktop/lima`), so `DATABASE_URL=…localhost:5432…` — the API,
+`db:migrate`, `db:seed` — all use Rancher's Postgres. The two are unrelated
+databases that happen to share a name. This settles the 2026-08-29 open
+question: the 2026-08-27 entry was about the host-port path (Rancher), and
+testcontainers is a separate matter (below).
+**Fix:** for anything the API sees, use
+`docker --context rancher-desktop exec devdigest-postgres psql -U devdigest -d devdigest …`
+(role is `devdigest`, not `postgres`). Sanity-check by comparing
+`select id from workspaces` against the `workspace_id` in `curl :3001/repos`
+before drawing a single conclusion from SQL. For **testcontainers**
+(`*.it.test.ts`) the Colima socket worked again today, 43/43 and 54/54:
+`export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock TESTCONTAINERS_RYUK_DISABLED=true`;
+without `DOCKER_HOST` it fails with
+`Could not find a working container runtime strategy`.
+
+## 2026-09-03 — `avg()` over per-case metric columns is a MACRO-average; a "share across the batch" criterion needs Σ/Σ, so persist the counts
+
+**Rubric:** What Doesn't Work
+**Symptom:** SPEC-04's first `batchAggregateQuery` (`server/src/modules/eval/repository.ts`) computed batch `recall`/`precision`/`citation_accuracy` as `avg(eval_runs.recall)` etc. over the per-case columns. Every unit test was green; the served number was wrong for any batch whose cases carry different numbers of expectations — a one-expectation case weighed the same as a ten-expectation one.
+**Cause:** AC-45/AC-50/AC-52 and plan D-6 define the batch metrics as ratios of sums (Σ matched ÷ Σ expected; Σ kept ÷ Σ (kept + dropped)). `avg()` of per-case ratios is a different quantity (macro-average), and the schema had no numerator/denominator columns to sum, so the ratio could not be "un-divided" at read time.
+**Fix:** the runner persists the scorer's tally in `eval_runs.actual_output.counts` (`PersistedActualOutput` in `repository.ts`: expected/actual/matched/noise/kept/dropped) and the aggregate sums those in SQL (`countSum`), still one grouped query. `server/test/eval.it.test.ts` "AC-45 / AC-50 / AC-52 (batch) — repository aggregate agrees with the scorer" pins the served record against hand-computed micro-averages AND against `scoreBatch(...)` over the same inputs. **Caveat:** on that fixture (per-case denominators 1, 2, 1, 1) `avg()` of the non-null per-case ratios coincides with Σ/Σ for all three metrics, so that test does NOT yet separate macro from micro — a fixture with one case of 3+ expectations and another of 1 would. The two formula copies (`scoring.ts:scoreBatch`, `repository.ts:toBatchRecord`) remain a known duplication — SPEC-04 follow-up.
+
+## 2026-09-03 — materialise a polled batch's rows BEFORE `jobs.enqueue`, or the studio's "running" state flickers on late
+
+**Rubric:** Codebase Patterns
+**Symptom:** with the per-case `eval_runs` rows inserted inside the `eval-batch` job handler, `GET /agents/:id/eval-runs` returned `[]` for as long as the `JobRunner` queue was busy; the studio, polling from the moment it got its 202, showed no batch at all, then a `running` one. `eval.it.test.ts`'s AC-40 concurrent-batch test failed on that ordering.
+**Cause:** the derived-status design (plan D-2: status = f(rows), no batch table) has no row to derive from until the seed insert runs, and a job handler runs whenever the queue reaches it — not at 202 time.
+**Fix:** seed the rows in the service on the request path (`EvalService.acceptAgentBatch`, before `enqueue`), and have the handler read them back (`repo.runsForBatch`). SPEC-04's own sequence diagram already drew it this way; the plan text said "runner" and was amended. Generalises to any 202+poll feature whose status is derived from child rows.
+
+## 2026-09-03 — a debounce marker cleared at job START is unpinnable against a mock provider; pause `p-queue` in the test instead of gating the provider
+
+**Rubric:** What Works
+**Symptom:** `agents-eval.it.test.ts` "NFR-17 / AC-87 — five rapid prompt edits queue at most ONE pending job" flaked: 3–5 jobs queued. With `MockLLMProvider` the `agent-version-eval` handler finishes in under a millisecond, so the pending marker was already cleared between two `PUT`s and each edit legitimately re-queued.
+**Cause:** the marker in `EvalTriggerService` (`server/src/modules/eval/trigger.ts`) clears when the job *finishes*; the test raced the scheduler by trying to slow the provider down.
+**Fix:** hold the queue, not the provider — `container.jobs` wraps `p-queue`; pause it before the five edits so the first job stays *pending* (the state AC-87 is about), assert exactly one job, then resume and `onIdle()`. Clearing on finish is also what makes AC-88's stale-payload skip reachable; do not move the clear to handler start to "fix" the test.
+
+## 2026-09-03 — `eval_runs.duration_ms` includes the provider call, and `MockLLMProvider` has no latency knob — NFR-1's timing test is honest only by that absence
+
+**Rubric:** Open Questions
+**Symptom:** none yet — latent. `eval.it.test.ts` "NFR-1 — every case of a 20-case stub batch costs the API at most 250 ms of its own work" asserts the slowest `duration_ms` ≤ 250 (observed ≈ 2 ms).
+**Cause:** `duration_ms` is `now() - caseStarted` around the whole case in `runner.ts`, model call included, and computed before the final `completeRun` write; NFR-1 excludes the model call and includes persistence. `MockLLMOptions` (`server/src/adapters/mocks.ts:44-56`) exposes no `delay`, so the mock's contribution is one microtask and the number happens to measure what the NFR means.
+**Fix:** if a future stub gains default latency, or a real provider is ever wired into that suite, the test fails for the wrong reason. The clean seam would be a `delay?: number` on `MockLLMOptions` set to `0` explicitly, or a separate overhead timer in the runner — both production changes, neither made.
+
 ## 2026-08-29 — a stub that ignores the parameter it is handed makes that parameter's value unfalsifiable, and `toBe(THE_CONSTANT)` hides it
 
 **Rubric:** What Doesn't Work

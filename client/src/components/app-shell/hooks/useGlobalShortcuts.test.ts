@@ -112,3 +112,45 @@ describe("the Project Context nav registration (AC-57)", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 });
+
+/**
+ * SPEC-04 AC-68 / UX-8 — the Eval Dashboard row.
+ *
+ * This edits `src/vendor/ui/nav.ts`, which `client/AGENTS.md` lists as
+ * do-not-touch. It is SANCTIONED by plan D-16 on SPEC-01's precedent: the file's
+ * own comment named the Eval Dashboard row as withheld "until their routes
+ * land", and `/eval` now lands.
+ */
+describe("SPEC-04 AC-68 — the Eval Dashboard nav row", () => {
+  beforeEach(() => push.mockClear());
+  afterEach(() => cleanup());
+
+  it("renders exactly one row under SKILLS LAB pointing at /eval", () => {
+    const group = NAV.find((g) => g.section === "SKILLS LAB")!;
+    const rows = group.items.filter((i) => i.key === "eval");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.href).toBe("/eval");
+  });
+
+  it("AC-68 — the label is BYTE-IDENTICAL to shell.nav.eval", () => {
+    const row = NAV.flatMap((g) => g.items).find((i) => i.key === "eval")!;
+    // The sidebar renders this literal while the command palette renders the
+    // translation; equality between the two IS the criterion.
+    expect(row.label).toBe(navShellMessages.nav.eval);
+  });
+
+  it("UX-8 — g then e navigates to /eval, and the shortcut is registered", () => {
+    mount();
+    press("g");
+    press("e");
+    expect(push).toHaveBeenCalledWith("/eval");
+    expect(SHORTCUTS.some((s) => s.keys === "g e")).toBe(true);
+  });
+
+  it("the withheld GLOBAL rows stay withheld — exactly one row was added", () => {
+    const keys = NAV.flatMap((g) => g.items).map((i) => i.key);
+    for (const withheld of ["memory", "multi-agent", "agent-performance", "ci-runs", "onboarding-tour"]) {
+      expect(keys).not.toContain(withheld);
+    }
+  });
+});

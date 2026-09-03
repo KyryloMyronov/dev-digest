@@ -17,6 +17,17 @@ import {
   PrDetail,
   PrFileSummariesResponse,
   FeatureModelId,
+  EvalExpectedFinding,
+  EvalCase,
+  EvalCaseInput,
+  EvalBatchRecord,
+  EvalBatchAccepted,
+  EvalBatchStatus,
+  EvalDashboardAgentRow,
+  EvalWorkspaceDashboard,
+  EvalBatchEstimate,
+  Agent,
+  AgentVersionConfig,
 } from '@devdigest/shared';
 
 /**
@@ -295,5 +306,159 @@ describe('platform DTOs', () => {
         commits: [],
       }),
     ).not.toThrow();
+  });
+
+  it('SPEC-04 — EvalExpectedFinding fills end_line from start_line (AC-21)', () => {
+    // AC-21 is a TRANSFORM, not a literal: assert the derived value, not that a
+    // fixture with both fields round-trips.
+    const one = EvalExpectedFinding.parse({ file: 'a.ts', start_line: 12 });
+    expect(one.end_line).toBe(12);
+    // An explicit end_line survives untouched.
+    expect(EvalExpectedFinding.parse({ file: 'a.ts', start_line: 12, end_line: 40 }).end_line).toBe(
+      40,
+    );
+    // The optional descriptive fields are genuinely optional (a hand-written
+    // case carries no id/rationale/confidence — that is why this is not Finding).
+    expect(() => EvalExpectedFinding.parse({ start_line: 1 })).toThrow();
+    expect(() => EvalExpectedFinding.parse({ file: '', start_line: 1 })).toThrow();
+  });
+
+  it('SPEC-04 — EvalCaseInput defaults expectation to must_find (AC-25) and caps at 20 (AC-109)', () => {
+    const parsed = EvalCaseInput.parse({
+      owner_kind: 'agent',
+      owner_id: 'a1',
+      name: 'no-expectation-given',
+      expected_output: [{ file: 'a.ts', start_line: 3 }],
+    });
+    // AC-25: the field is absent on the wire and PRESENT in the parsed value.
+    expect(parsed.expectation).toBe('must_find');
+    // AC-21 applies through the array too.
+    expect(parsed.expected_output[0].end_line).toBe(3);
+    expect(parsed.input_diff).toBe('');
+
+    // AC-109 — 20 passes, 21 does not.
+    const entry = { file: 'a.ts', start_line: 1 };
+    const base = { owner_kind: 'agent' as const, owner_id: 'a1', name: 'n' };
+    expect(() =>
+      EvalCaseInput.parse({ ...base, expected_output: Array.from({ length: 20 }, () => entry) }),
+    ).not.toThrow();
+    expect(() =>
+      EvalCaseInput.parse({ ...base, expected_output: Array.from({ length: 21 }, () => entry) }),
+    ).toThrow();
+  });
+
+  it('SPEC-04 — EvalCase carries a parsed expectation and expected_output', () => {
+    const parsed = EvalCase.parse({
+      id: 'c1',
+      owner_kind: 'agent',
+      owner_id: 'a1',
+      name: 'stripe-key-leak',
+      input_diff: 'diff --git a/a.ts b/a.ts',
+      input_files: null,
+      input_meta: { head_sha: 'abc', source_finding_ids: ['f1'] },
+      expected_output: [{ file: 'a.ts', start_line: 12 }],
+      expectation: 'must_not_flag',
+      notes: null,
+    });
+    expect(parsed.expectation).toBe('must_not_flag');
+    expect(parsed.expected_output[0].end_line).toBe(12);
+    // AC-22 — an empty array is legal on the shape; the must_find/empty refusal
+    // (AC-23) is the service's, not the schema's.
+    expect(() =>
+      EvalCase.parse({ ...parsed, expected_output: [], expectation: 'must_not_flag' }),
+    ).not.toThrow();
+  });
+
+  it('SPEC-04 — EvalBatchRecord: running is a status, and null metrics are legal (D-1, D-2)', () => {
+    expect(EvalBatchStatus.options).toEqual(['running', 'complete', 'partial', 'failed']);
+    const inFlight = EvalBatchRecord.parse({
+      batch_id: 'b1',
+      agent_id: 'a1',
+      agent_name: 'Security Reviewer',
+      agent_version: 7,
+      ran_at: '2026-09-03T00:00:00.000Z',
+      trigger: 'manual',
+      status: 'running',
+      recall: null,
+      precision: null,
+      citation_accuracy: null,
+      traces_passed: 0,
+      traces_total: 0,
+      cases_ran: 0,
+      cases_total: 5,
+      cost_usd: null,
+    });
+    expect(inFlight.status).toBe('running');
+    // `.nullable()`, NOT `.optional()` — the studio must RECEIVE the null and
+    // render a placeholder; an absent key and `null` are different facts.
+    expect(() => EvalBatchRecord.parse({ ...inFlight, recall: undefined })).toThrow();
+  });
+
+  it('SPEC-04 — EvalBatchAccepted / estimate / workspace dashboard', () => {
+    expect(() =>
+      EvalBatchAccepted.parse({ status: 'accepted', batch_id: 'b1', cases: 3 }),
+    ).not.toThrow();
+    // A skipped agent in a workspace-wide run: no batch, a stated reason.
+    expect(() =>
+      EvalBatchAccepted.parse({
+        status: 'accepted',
+        batch_id: null,
+        cases: 0,
+        degraded: true,
+        reason: 'config_error',
+      }),
+    ).not.toThrow();
+    expect(() => EvalBatchAccepted.parse({ status: 'queued', batch_id: null, cases: 0 })).toThrow();
+
+    // est_cost_usd is nullable: "no priced batch to extrapolate from" is not $0.
+    const est = EvalBatchEstimate.parse({ agents: 2, cases: 9, est_cost_usd: null });
+    expect(est.est_cost_usd).toBeNull();
+
+    const row = EvalDashboardAgentRow.parse({
+      agent_id: 'a1',
+      agent_name: 'Security Reviewer',
+      agent_version: 7,
+      enabled: true,
+      cases_total: 5,
+      latest_batch_id: null,
+      latest_ran_at: null,
+      recall: null,
+      precision: null,
+      citation_accuracy: null,
+      traces_passed: null,
+      traces_total: null,
+      cost_usd: null,
+    });
+    const dash = EvalWorkspaceDashboard.parse({ agents: [row], batches: [], cases_total: 5 });
+    expect(dash.agents).toHaveLength(1);
+  });
+
+  it('SPEC-04 — Agent.auto_eval defaults to false; AgentVersionConfig accepts restored_from', () => {
+    const agent = Agent.parse({
+      id: 'a1',
+      name: 'Security Reviewer',
+      description: 'd',
+      provider: 'openai',
+      model: 'gpt-4.1',
+      system_prompt: 'p',
+      enabled: true,
+      version: 7,
+    });
+    expect(agent.auto_eval).toBe(false);
+    expect(Agent.parse({ ...agent, auto_eval: true }).auto_eval).toBe(true);
+
+    // `toAgentVersionDto` parses this shape on EVERY version read, so a snapshot
+    // written WITH restored_from must parse, and one written WITHOUT it too.
+    const cfg = {
+      provider: 'openai' as const,
+      model: 'gpt-4.1',
+      system_prompt: 'p',
+      strategy: 'single-pass' as const,
+      ci_fail_on: 'critical' as const,
+      repo_intel: true,
+      skills: [],
+    };
+    expect(AgentVersionConfig.parse(cfg).restored_from ?? null).toBeNull();
+    expect(AgentVersionConfig.parse({ ...cfg, restored_from: 6 }).restored_from).toBe(6);
   });
 });

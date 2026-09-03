@@ -21,6 +21,16 @@ export interface JobRunnerOptions {
   retries?: number;
 }
 
+export interface RegisterOptions {
+  /**
+   * Per-kind override of the runner's default timeout. A handler whose honest
+   * running time is minutes — an eval batch runs its cases SERIALLY, one LLM
+   * call each — registers with the deadline it actually needs; every other kind
+   * keeps the 120 s default.
+   */
+  timeoutMs?: number;
+}
+
 export interface EnqueuedJob {
   id: string;
   /** Resolves when the job finishes (or rejects if it ultimately fails). */
@@ -30,7 +40,18 @@ export interface EnqueuedJob {
 export class JobRunner {
   private queue: PQueue;
   private handlers = new Map<string, JobHandler>();
-  private timeoutMs: number;
+  private timeouts = new Map<string, number>();
+  /**
+   * The DEFAULT deadline — what a kind registered without `timeoutMs` races.
+   * Public and readonly so a handler can reason about the deadline it is racing
+   * (SPEC-04 AC-92): `withTimeout` rejects the race but does NOT abort the
+   * underlying promise, so a long handler keeps running after its `jobs` row has
+   * gone `failed`, and the only way to reconcile the two afterwards is a log
+   * line the handler emits at that moment. Reading the number beats duplicating
+   * it in a module constant that would silently drift. A kind with its own
+   * override reads `timeoutFor(kind)` instead.
+   */
+  readonly timeoutMs: number;
   private retries: number;
 
   constructor(
@@ -42,8 +63,15 @@ export class JobRunner {
     this.retries = opts.retries ?? 2;
   }
 
-  register(kind: string, handler: JobHandler): void {
+  register(kind: string, handler: JobHandler, opts: RegisterOptions = {}): void {
     this.handlers.set(kind, handler);
+    if (opts.timeoutMs !== undefined) this.timeouts.set(kind, opts.timeoutMs);
+    else this.timeouts.delete(kind);
+  }
+
+  /** The deadline `enqueue` races for this kind: its override, else the default. */
+  timeoutFor(kind: string): number {
+    return this.timeouts.get(kind) ?? this.timeoutMs;
   }
 
   async enqueue(workspaceId: string, kind: string, payload: unknown): Promise<EnqueuedJob> {
@@ -64,7 +92,7 @@ export class JobRunner {
       try {
         await withRetry(
           () =>
-            withTimeout(handler(payload, { jobId }), this.timeoutMs).then(async () => {
+            withTimeout(handler(payload, { jobId }), this.timeoutFor(kind)).then(async () => {
               await this.db
                 .update(t.jobs)
                 .set({ attempts: 1 })

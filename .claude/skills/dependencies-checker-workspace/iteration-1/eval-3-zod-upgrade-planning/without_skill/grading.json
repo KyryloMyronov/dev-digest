@@ -1,0 +1,15 @@
+{
+  "expectations": [
+    {"text": "reports_actual_installed_zod_version_per_package", "passed": true, "evidence": "Table with declared vs installed per package, cross-verified against lockfiles for duplicate-version absence."},
+    {"text": "does_not_falsely_claim_drift", "passed": true, "evidence": "Explicitly states 'Version drift по zod між чотирма пакетами відсутній.'"},
+    {"text": "separately_notes_declared_range_difference", "passed": true, "evidence": "Calls mcp's differing declared range 'косметика' with 'немає технічної причини не вирівняти', clearly secondary."},
+    {"text": "covers_other_outdated_majors_beyond_zod", "passed": true, "evidence": "Extensive per-package tables for server, client, reviewer-core/mcp covering openai, typescript, vitest, next, recharts, react-markdown, dependency-cruiser, octokit, @anthropic-ai/sdk, drizzle-orm."}
+  ],
+  "summary": {"passed": 4, "failed": 0, "total": 4, "pass_rate": 1.0},
+  "timing": {"executor_duration_seconds": 281.7, "total_tokens": 67320, "tool_uses": 14},
+  "notes": [
+    "Independently found the same fastify-type-provider-zod blocker as with_skill, and went deeper: built a full peerDependency compatibility matrix across its 4.0.2/5.x/6.x/7.0.0 releases via `npm view <pkg>@<version> peerDependencies`, showing exactly which version range first requires zod>=4.1.5 and which new peers (@fastify/swagger, openapi-types) it adds.",
+    "Also verified reviewer-core and mcp have no equivalent blocker (checked openai's own deps for a zod peer; checked @modelcontextprotocol/sdk's declared zod range already covers v4).",
+    "On this eval, baseline was more thorough on the single most important finding than with_skill, while also being faster and cheaper than with_skill's own eval-1/eval-2 runs."
+  ]
+}

@@ -42,10 +42,10 @@ export const cases: SkillCase[] = [
     name: "full report follows the required 5-section structure with a Mermaid graph",
     kind: "quality",
     prompt: `Run a dependency check on this repo. I want the full report: graph, sizes, prioritized findings, recommendations.\n\n${REPO_DATA}`,
-    grounding: ["```mermaid", "flowchart"],
+    grounding: ["```mermaid", "graph"],
     practices: [
-      "the report has a section named 'Scope' listing which packages (client, server, reviewer-core, e2e) were analyzed",
-      "the report includes a Mermaid diagram (a fenced ```mermaid code block using flowchart) showing dependency relationships between packages",
+      "the report states up front (in a heading, or in the opening line under the title) which packages were analyzed, e.g. client, server, reviewer-core, e2e",
+      "the report includes a Mermaid diagram (a fenced ```mermaid code block) showing dependency relationships between packages",
       "the report has a section with a size breakdown table showing dependencies and their installed size, not just a vague size statement",
       "the report has a 'Findings & Priorities' section (or equivalently named) that groups findings under explicit severity tiers such as P0, P1, P2, or Info — not an unranked bullet list",
       "the report ends with a Summary section giving 3-5 concrete, actionable takeaways ordered by priority",
@@ -55,12 +55,17 @@ export const cases: SkillCase[] = [
     maxTurns: 10,
   },
   {
-    name: "distinguishes internal (path-alias) dependencies from external npm dependencies",
+    // Scope note: this skill is npm-dependency inventory/size/version/staleness only — it
+    // explicitly defers architectural judgment (is this internal import structured correctly?)
+    // to onion-architecture/architecture-reviewer (see SKILL.md's opening line). So this case only
+    // checks that the internal path-alias/relative-import references don't get miscounted as
+    // versioned npm dependencies in the report's tables — not that the skill flags them as an
+    // architecture violation, which is out of scope by design.
+    name: "does not conflate internal path-alias references with external npm dependencies",
     kind: "quality",
-    prompt: `This repo isn't a monorepo — server, client, reviewer-core, and e2e share code via TypeScript path aliases, not workspace:* packages. Analyze our dependencies, including how these packages depend on each other internally.\n\n${REPO_DATA}`,
+    prompt: `This repo isn't a monorepo — server, client, reviewer-core, and e2e share code via TypeScript path aliases, not workspace:* packages. Analyze our dependencies.\n\n${REPO_DATA}`,
     practices: [
-      "the answer explicitly distinguishes internal cross-package dependencies (the @shared/review-types alias and the direct relative import into reviewer-core/src/pipeline.js) from external npm package dependencies, rather than treating them as the same kind of dependency",
-      "the answer flags server/src/services/review-service.ts importing reviewer-core/src/pipeline.js by relative path instead of through reviewer-core's public entry point as a P0-tier or otherwise explicitly called-out issue",
+      "the answer's dependency size/version tables list only real npm package.json dependencies (e.g. fastify, zod, next), and do NOT list the internal @shared/review-types alias or the reviewer-core/src/pipeline.js relative import as if they were versioned npm packages with an installed size",
       "the answer does not claim these packages are linked via workspace:* or pnpm workspaces, since the project explicitly is not a monorepo",
     ],
     threshold: 0.6,
@@ -72,7 +77,7 @@ export const cases: SkillCase[] = [
     prompt: `We suspect some npm dependencies in server/ and client/ are unused or duplicated across packages with different versions. Check our dependencies and tell me what to prioritize fixing first.\n\n${REPO_DATA}`,
     practices: [
       "findings are explicitly labeled with one of the defined severity tiers (P0, P1, P2, or Info) rather than left unranked",
-      "the three different zod versions across server, client, and reviewer-core are called out explicitly as version drift",
+      "the answer explicitly mentions that the declared zod versions differ across packages (3.22.4 in client vs 3.23.8 in server/reviewer-core) — since all three share the same major version, this is correctly treated as a lower-priority/informational note rather than an urgent version-drift finding",
       "moment being declared in server/package.json but never imported anywhere under server/src is called out explicitly as an unused dependency",
       "each recommendation names a specific package name and package.json/file location (e.g. server/package.json, moment, zod) rather than a generic suggestion",
       "removing a dependency (e.g. moment) is presented as a recommendation for the user to confirm, not something already executed",

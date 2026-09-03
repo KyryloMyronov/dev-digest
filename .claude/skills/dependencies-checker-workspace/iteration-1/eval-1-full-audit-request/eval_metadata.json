@@ -1,0 +1,13 @@
+{
+  "eval_id": 1,
+  "eval_name": "full-audit-request",
+  "prompt": "Хочу зробити повний аудит залежностей нашого репозиторію dev-digest-kyrmyr — по всіх наших пакетах (server, client, reviewer-core, mcp, e2e). Треба схема залежностей, скільки кожен пакет важить на диску, які версії де встановлені, і в кінці список що варто зробити першочергово.",
+  "expectations": [
+    "has_mermaid_diagram — report contains a ```mermaid fenced code block",
+    "covers_all_5_packages — server, client, reviewer-core, mcp, and e2e are each named with at least one concrete number (size or dependency) attached",
+    "has_per_dependency_size_table — at least one markdown table with per-dependency size figures, not just per-package totals",
+    "distinguishes_declared_range_from_installed_version — explicitly reports two different values for at least one dependency: the package.json semver range AND the actual resolved/installed version, not just one",
+    "ends_with_ranked_recommendations — the report closes with an explicit priority-ordered action list (not a flat bullet dump with no ordering signal)",
+    "sizes_look_measured_not_guessed — numeric MB/GB figures are present per package and are plausible (not suspiciously round numbers like exactly '100 MB' for everything, which would indicate estimation rather than a real du measurement)"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "eval_id": 0,
+  "eval_name": "signup-form-validation",
+  "prompt": "I'm building a signup form in a Next.js + TypeScript app. I need a Zod schema for the form data: `email` (required, valid email format), `password` (min 8 characters), and `confirmPassword` (must exactly match `password`). When validation fails, I want to show a field-level error message under each input rather than one generic error. Also export the inferred TypeScript type for the form data so I can type the `useState` and the submit handler. Write the schema and the parsing/error-handling code to a file called `signup.ts`.",
+  "assertions": [
+    "Uses .safeParse(), not the throwing .parse(), to validate the form data",
+    "Validates email with z.string().email() (or equivalent email check)",
+    "Enforces a minimum password length of 8 via .min(8)",
+    "Checks confirmPassword against password via .refine() or .superRefine(), with the error path set to confirmPassword",
+    "Exposes validation errors keyed by field (e.g. via .flatten() or issue.path), not just a single generic message",
+    "Exports the inferred TypeScript type for the form data via z.infer<typeof schema>"
+  ]
+}

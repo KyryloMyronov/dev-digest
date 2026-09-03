@@ -11,7 +11,10 @@
     "sendReply": "Send reply",
     "cancel": "Cancel",
     "viewInDiff": "View in diff",
-    "notInDiff": "This finding points at a line that isn't part of the diff"
+    "notInDiff": "This finding points at a line that isn't part of the diff",
+    "turnIntoEvalCase": "Turn into eval case",
+    "turnIntoEvalCaseHint": "Accept or dismiss this finding first",
+    "evalCaseCreated": "Eval case created"
   },
   "trifecta": {
     "lethal": "LETHAL TRIFECTA — ALL 3 PRESENT",

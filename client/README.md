@@ -28,7 +28,9 @@ flowchart TD
   PULLS --> PR["/pulls/:number<br/>review detail<br/>(overview · diff · findings)<br/>diff = Smart Diff, grouped by role"]
 
   PULLS --> CTX["/repos/:repoId/context<br/>Project Context<br/>(read-only list · preview)"]
-  AGENTS["/agents"] --> AGENT["/agents/:id<br/>editor (config · skills · context)"]
+  AGENTS["/agents"] --> AGENT["/agents/:id<br/>editor (config · skills · context · evals)"]
+  EVAL["/eval<br/>Eval Dashboard<br/>(agents ranked · recent batches)"] --> EVALAG["/eval/agents/:agentId<br/>tiles · trend · compare"]
+  EVALAG --> EVALCASE["/eval/agents/:agentId/cases/(new|:caseId)<br/>eval case editor"]
   SKILLS["/skills<br/>library · preview · editor · import"]
   SETTINGS["/settings/:section<br/>API keys · models"]
 
@@ -40,7 +42,24 @@ flowchart TD
   SETTINGS -->|"/settings · /providers"| API
   CTX -->|"GET /repos/:id/context · /context/doc<br/>POST /repos/:id/context/reindex"| API
   AGENT -->|"GET/POST/PUT/DELETE /agents/:id/context-docs"| API
+  EVAL -->|"GET /eval · /eval/estimate · POST /eval/runs"| API
+  EVALAG -->|"GET /eval/agents/:agentId · /agents/:id/eval-runs<br/>POST /agents/:id/eval-runs · /agents/:id/versions/:v/restore"| API
+  EVALCASE -->|"GET/PUT/DELETE /eval-cases/:id · POST /agents/:id/eval-cases<br/>POST /eval-cases/:id/runs · /findings/:id/eval-case"| API
 ```
+
+**Agent Evals (SPEC-04).** `/eval` ranks every agent in the workspace by its
+latest batch and lists the workspace's 50 newest batches, newest first, behind a
+costed confirmation for "Run all agents". `/eval/agents/:agentId` adds metric
+tiles, an inline-SVG metric trend on an **ordinal** x-axis
+(`_components/MetricTrend/` — the vendor `LineChart` cannot express it and is
+neither used nor edited), a deterministic regression banner composed in the
+studio from `alert_metric` + `alert_delta`, and a two-batch compare with a
+line-level system-prompt diff and a confirmed restore. The agent editor gains an
+**Evals** tab; a finding card gains "Turn into eval case". A batch is
+asynchronous: `POST /agents/:id/eval-runs` answers **202** and the studio polls
+`GET /agents/:id/eval-runs` while any batch reads `running`. Hooks live in
+`src/lib/hooks/eval.ts`; the sidebar's Eval Dashboard row is the one sanctioned
+edit to `src/vendor/ui/nav.ts`.
 
 Cross-cutting chrome lives in `src/components/app-shell` (nav, breadcrumbs,
 `g`-then-key shortcuts). Pages are thin; feature logic sits in colocated
